@@ -437,7 +437,7 @@ class transformations_config(nn.Module):
             value_processed,
             band_post_proc,
         ], dim=5)
-        
+
         tokens = einops.rearrange(tokens, "b t h w c f -> b (t h w c) f")
         token_masks = einops.rearrange(mask_sen, "b t h w c -> b (t h w c)")
 
@@ -523,5 +523,40 @@ class transformations_config(nn.Module):
     
 
         return tokens,token_masks
+    
+    def get_tokens(self,img,mask,mode="optique",modality="s2",wave_encoding=None):
+        
+  
+
+        if mode=="optique":
+            return self.apply_transformations_optique(img,mask,modality)
+        if mode=="sar":
+            return self.apply_transformations_SAR(img,mask,modality,wave_encoding=wave_encoding)
+    
+
+    def process_data(self,img,mask):
+        L_tokens=[]
+        L_masks=[]
+
+        
+        
+        img=img.unsqueeze(1)
+        img=einops.rearrange(img,"B T C H W -> B T H W C")
+        mask=mask.unsqueeze(1)
+        mask=einops.rearrange(mask,"B T C H W -> B T H W C")
+        
+        if self.config["dataset"]["S2"]:
+            tmp_img,tmp_mask=self.apply_temporal_spatial_transforms(img, mask)
+            tokens_s2,tokens_mask_s2=self.get_tokens(tmp_img,tmp_mask,mode="optique",modality="s2")
+            L_masks.append(tokens_mask_s2)
+            L_tokens.append(tokens_s2)
+
+        tokens=torch.cat(L_tokens,dim=1)
+        tokens_mask=torch.cat(L_masks,dim=1)
+
+
+        
+        return tokens,tokens_mask
+
 
   

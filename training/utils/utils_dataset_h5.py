@@ -152,9 +152,9 @@ def compute_channel_mean_std(dico_idxs,ds):
     return stats
 
 
-def create_dataset(dico_idxs, ds,df, name="tiny", mode="train",trans_config=None, stats=None,max_len=-1):
+def create_dataset(dico_idxs, ds,df, name="tiny", mode="train",trans_config=None,trans_tokens=None, stats=None,max_len=-1):
     if dico_idxs!=None:
-        return create_dataset_dico(dico_idxs, ds, name, mode,trans_config, stats)
+        return create_dataset_dico(dico_idxs, ds, name, mode,trans_config,trans_tokens=trans_tokens, stats=stats)
     
     # 1) Clean up any existing file
     
@@ -246,7 +246,21 @@ def create_dataset(dico_idxs, ds,df, name="tiny", mode="train",trans_config=None
     return stats
 
 
-def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=None, stats=None):
+def get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode,modality_mode):
+    tmp_img=img[2:,:,:]
+
+
+    tmp_mask=torch.ones(tmp_img.shape)
+    tmp_img,tmp_mask=trans_config.apply_transformations(tmp_img,tmp_mask,int(elem_id),mode=mode,modality_mode=modality_mode)
+    tmp_img,tmp_mask=trans_tokens.process_data(tmp_img.unsqueeze(0),tmp_mask.unsqueeze(0))
+    tmp_img=tmp_img.squeeze(0)
+    tmp_mask=tmp_mask.squeeze(0)
+
+    cond=tmp_mask==1
+    image=tmp_img[cond]
+    return int(image.shape[0])
+
+def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=None,trans_tokens=None, stats=None):
     """
     Creates an HDF5 dataset using the given sample indices (dico_idxs) from ds.
     If stats (per-channel mean/std) is None, computes it on-the-fly in a streaming fashion.
@@ -304,10 +318,22 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
             # normalized_value = (value - mean[channel]) / std[channel]
             img = (img - means) / stds
 
+            shape_train=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="train")
+            shape_validation=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="validation")
+            shape_test=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="test")
+
+            
+            
+
             # Convert back to numpy to store in HDF5
             db.create_dataset(f'image_{cpt_train}', data=img.numpy().astype(np.float16))
             db.create_dataset(f'label_{cpt_train}', data=label.numpy().astype(int))
             db.create_dataset(f'id_{cpt_train}', data=int(elem_id))
+            db.create_dataset(f'shape_train_{cpt_train}', data=int(shape_train))
+            db.create_dataset(f'shape_test_{cpt_train}', data=int(shape_test))
+            db.create_dataset(f'shape_validation_{cpt_train}', data=int(shape_validation))
+
+            
 
             cpt_train += 1
 
@@ -324,13 +350,16 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
 
 
 class Tiny_BigEarthNet(Dataset):
-    def __init__(self, file_path, transform,model="None",mode="train"):
+    def __init__(self, file_path, transform,transform_tokens=None,model="None",mode="train"):
         self.file_path = file_path
         self.num_samples = None
         self.mode=mode
+        self.shapes=[]
         self._initialize_file()
         self.transform=transform
         self.model=model
+        self.transform_tokens=transform_tokens
+
         
         self.modality_mode=mode
         self.original_mode=mode
@@ -343,7 +372,12 @@ class Tiny_BigEarthNet(Dataset):
     def _initialize_file(self):
      
         with h5py.File(self.file_path, 'r') as f:
-            self.num_samples = len(f.keys()) // 3  # Nombre d'échantillons
+            self.num_samples = len(f.keys()) // 6  # Nombre d'échantillons
+
+            for idx in range(self.num_samples):
+                shape_key = int(f[f'shape_{self.mode}_{idx}'][()])
+                self.shapes.append(shape_key)
+
 
   
 
@@ -364,8 +398,14 @@ class Tiny_BigEarthNet(Dataset):
         label=None
         id_img=None
 
+        if self.h5 is None:
+            self.h5 = h5py.File(self.file_path, 'r')  # 👈 Open file if not yet opened
+
+
+
 
         f = self.h5
+
 
         image = torch.tensor(f[f'image_{idx}'][:]) #14;120;120
         image =image[2:,:,:]
@@ -376,6 +416,17 @@ class Tiny_BigEarthNet(Dataset):
         
         image,attention_mask=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode)
 
+        if self.transform_tokens!=None:
+            image,attention_mask=self.transform_tokens.process_data(image.unsqueeze(0),attention_mask.unsqueeze(0))
+            image=image.squeeze(0)
+            attention_mask=attention_mask.squeeze(0)
+
+            cond=attention_mask==1
+            image=image[cond]
+            attention_mask=attention_mask[cond]
+
+
+
         
 
         return image,attention_mask, label, id_img
@@ -383,7 +434,100 @@ class Tiny_BigEarthNet(Dataset):
     def Sampler_building(self, idx, mode="train"):
 
         return self.shapes[idx]
-  
+    
+
+import torch
+import random
+from torch.utils.data import DataLoader, Sampler
+from tqdm import tqdm
+import torch.distributed as dist
+import torch
+import random
+from torch.utils.data import DataLoader, Sampler
+from tqdm import tqdm
+import torch.distributed as dist
+
+class DistributedShapeBasedBatchSampler(Sampler):
+    """
+    A distributed batch sampler that groups samples by shape and partitions the batches
+    across GPUs. Each process only sees a subset of the batches based on its rank.
+    """
+    def __init__(self, dataset, batch_size, shuffle=True, drop_last=True, rank=None, world_size=None,mode="train"):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.drop_last = drop_last
+        self.mode=mode
+
+
+        # Set up distributed parameters.
+        if rank is None:
+            if dist.is_available() and dist.is_initialized():
+                rank = dist.get_rank()
+            else:
+                rank=0
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+        if world_size is None:
+            if dist.is_available() and dist.is_initialized():
+                world_size = dist.get_world_size()
+            else:
+                world_size = 1
+        self.rank = rank
+        self.world_size = world_size
+
+        # Group indices by image shape.
+        self.shape_to_indices = {}
+        # Use a temporary DataLoader to iterate over the dataset (batch_size=1).
+        #loader = DataLoader(dataset, batch_size=1, num_workers=8, shuffle=False)
+        for idx in tqdm(range(len(dataset)), desc="Sampler initialization"):
+            # Assuming each sample returns (image, label, ...); adjust as needed.
+            image_shape = dataset.Sampler_building(idx,mode=self.mode)
+            # Convert image.shape (a torch.Size) to a tuple so it can be used as a key.
+            shape_key = image_shape
+            self.shape_to_indices.setdefault(shape_key, []).append(idx)
+        
+        # Create batches from the groups.
+        self.batches = []
+        for indices in tqdm(self.shape_to_indices.values(), desc="Batch creation"):
+            random.shuffle(indices)
+            # Create batches for this shape group.
+            for i in range(0, len(indices), self.batch_size):
+                batch = indices[i:i+self.batch_size]
+                if len(batch) == self.batch_size:
+                    self.batches.append(batch)
+        
+        if self.shuffle:
+            random.shuffle(self.batches)
+        
+        # Make sure total number of batches is divisible by the number of processes.
+        total_batches = len(self.batches)
+        remainder = total_batches % self.world_size
+        if remainder != 0:
+            if not self.drop_last:
+                # Pad with extra batches (repeating from the beginning) so each process has equal work.
+                pad_size = self.world_size - remainder
+                self.batches.extend(self.batches[:pad_size])
+                total_batches = len(self.batches)
+            else:
+                # If dropping last incomplete batches, remove the excess.
+                total_batches = total_batches - remainder
+                self.batches = self.batches[:total_batches]
+        self.total_batches = total_batches
+
+    def __iter__(self):
+        if self.shuffle:
+            random.shuffle(self.batches)
+        for i in range(self.rank, self.total_batches, self.world_size):
+            batch = self.batches[i]
+            yield batch
+
+    def __len__(self):
+        # Number of batches that this process will iterate over.
+        return self.total_batches // self.world_size
+
+
+
 import torch
 import random
 from torch.utils.data import DataLoader, Sampler
@@ -392,7 +536,7 @@ import torch.distributed as dist
 
 
 class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
-    def __init__(self, path, trans_modalities, model="None", batch_size=32, num_workers=4,modality=None,ds=None):
+    def __init__(self, path, trans_modalities,trans_tokens=None, model="None", batch_size=32, num_workers=4,modality=None,ds=None):
         super().__init__()
         self.train_file = path + "_train.h5"
         self.val_file = path + "_validation.h5"
@@ -402,30 +546,25 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         self.trans_modalities = trans_modalities
         self.model = model
         self.modality=modality
+        self.trans_tokens=trans_tokens
 
     def setup(self, stage=None):
-        # Define transformations for the training phase.
-        self.train_transform = T.Compose([
-            T.RandomHorizontalFlip(),
-            T.RandomVerticalFlip(),
-        ])
-
-        # Initialize the datasets with their transformations.
-        # Note: This setup() method is called on each process so the dataset and sampler
-        # will be created in the proper distributed context.
         
         self.train_dataset = Tiny_BigEarthNet(
             self.train_file,
             transform=self.trans_modalities,
+            transform_tokens=self.trans_tokens,
             model=self.model,
             mode="train",
         )
+
         if self.modality!=None:
             self.train_dataset.modality_mode=self.modality
             
         self.val_dataset = Tiny_BigEarthNet(
             self.val_file,
             transform=self.trans_modalities,
+            transform_tokens=self.trans_tokens,
             model=self.model,
             mode="validation",
         )
@@ -436,6 +575,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         self.test_dataset = Tiny_BigEarthNet(
             self.test_file,
             transform=self.trans_modalities,
+            transform_tokens=self.trans_tokens,
             model=self.model,
             mode="test",
         )
@@ -449,14 +589,22 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         if self.modality==None:
             self.modality="train"
 
+        batch_sampler = DistributedShapeBasedBatchSampler(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            drop_last=False,
+            mode=self.modality
+        )
+
  
         rank = dist.get_rank() if dist.is_initialized() else 0
         print(f"Train DataLoader created on rank: {rank}")
         return DataLoader(
             self.train_dataset,
             num_workers=self.num_workers,
-            worker_init_fn=_init_worker,
-            batch_size=self.batch_size
+            #worker_init_fn=_init_worker,
+            batch_sampler=batch_sampler,
             #pin_memory=True,
             #prefetch_factor=8,  # increased prefetch for smoother transfers
             #persistent_workers=True  # avoid worker restart overhead
@@ -467,14 +615,23 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         if self.modality==None:
             self.modality="validation"
 
+
+        batch_sampler = DistributedShapeBasedBatchSampler(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            drop_last=False,
+            mode=self.modality
+        )
+
  
         rank = dist.get_rank() if dist.is_initialized() else 0
         print(f"Validation DataLoader created on rank: {rank}")
         return DataLoader(
             self.val_dataset,
             num_workers=self.num_workers,
-            worker_init_fn=_init_worker,
-            batch_size=self.batch_size
+            #worker_init_fn=_init_worker,
+            batch_sampler=batch_sampler,
             #pin_memory=True,
             #prefetch_factor=8,  # increased prefetch for smoother transfers
             #persistent_workers=True  # avoid worker restart overhead
@@ -486,14 +643,22 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         if self.modality==None:
             self.modality="test"
 
+        batch_sampler = DistributedShapeBasedBatchSampler(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            drop_last=False,
+            mode=self.modality
+        )
+
 
         rank = dist.get_rank() if dist.is_initialized() else 0
         print(f"Test DataLoader created on rank: {rank}")
         return DataLoader(
             self.test_dataset,
             num_workers=self.num_workers,
-            worker_init_fn=_init_worker,
-            batch_size=self.batch_size
+            #worker_init_fn=_init_worker,
+            batch_sampler=batch_sampler,
             #pin_memory=True,
             #prefetch_factor=4,  # increased prefetch for smoother transfers
             #persistent_workers=True  # avoid worker restart overhead
