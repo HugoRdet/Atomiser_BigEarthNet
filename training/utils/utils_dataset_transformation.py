@@ -32,7 +32,7 @@ def fourier_encode(x, max_freq, num_bands = 4):
     return x
 
 
-class transformations_config_flair(nn.Module):
+class transformations_config(nn.Module):
 
     
 
@@ -45,26 +45,6 @@ class transformations_config_flair(nn.Module):
         self.s2_res=self.get_resolutions_infos(self.bands_sen2_infos)
         self.register_buffer("positional_encoding_s2", None)
         self.register_buffer('wavelength_encoding_s2', None)
-        
-
-        self.bands_l7_infos=self.bands_yaml["bands_l7_info"]
-        self.l7_waves=self.get_wavelengths_infos(self.bands_l7_infos)
-        self.l7_res=self.get_resolutions_infos(self.bands_l7_infos)
-        self.register_buffer("positional_encoding_l7", None)
-        self.register_buffer('wavelength_encoding_l7', None)
-
-        self.bands_modis_infos=self.bands_yaml["bands_modis_info"]
-        self.mo_waves=self.get_wavelengths_infos(self.bands_modis_infos)
-        self.mo_res=self.get_resolutions_infos(self.bands_modis_infos)
-        self.register_buffer("positional_encoding_modis", None)
-        self.register_buffer('wavelength_encoding_modis', None)
-
-        self.bands_sen1_infos=self.bands_yaml["bands_sen1_info"]
-        self.register_buffer("positional_encoding_s1", None)
-
-        self.bands_alos_infos=self.bands_yaml["bands_alos_info"]
-        self.register_buffer("positional_encoding_alos", None)
-
   
 
         self.config=config
@@ -307,7 +287,7 @@ class transformations_config_flair(nn.Module):
         
         # For each spectral band and each Gaussian, find the maximum activation across the sampled points.
         # The max is taken along dim=1 (the num_points axis), returning a tensor of shape [s, num_gaussians].
-      
+        
         encoding = gaussians.max(dim=-2).values
        
 
@@ -331,8 +311,8 @@ class transformations_config_flair(nn.Module):
 
         id_cache=f"wavelength_encoding_{modality}"
         encoded = getattr(self, id_cache)
-        if  encoded is not None :
 
+        if  encoded is not None :
             #encoded=einops.repeat(encoded,'b t h w c d  -> (B b) t h w c d ',B=B_size)
 
             encoded = encoded.expand(
@@ -352,7 +332,7 @@ class transformations_config_flair(nn.Module):
         
         if self.config["Atomiser"]["wavelength_encoding"]=="GAUSSIANS":
             encoded=self.compute_gaussian_band_max_encoding(wavelength, bandwidth, num_points=50).unsqueeze(0).unsqueeze(0).unsqueeze(0)
-  
+            
             encoded=einops.repeat(encoded,'b t h w c d  -> b (T t) (h h1) (w w1) c d ',T=T_size,h1=img_size,w1=img_size)
 
             encoded=encoded.to(device)
@@ -412,20 +392,13 @@ class transformations_config_flair(nn.Module):
          
 
 
-    def apply_transformations_optique(self, im_sen, dates_sen, mask_sen, mode):
+    def apply_transformations_optique(self, im_sen, mask_sen, mode):
         # --- select band info based on mode ---
         if mode=="s2":
             tmp_infos = self.bands_sen2_infos
             res = self.s2_res
             tmp_bandwidth, tmp_central_wavelength = self.s2_waves
-        elif mode=="l7":
-            tmp_infos = self.bands_l7_infos
-            res = self.l7_res
-            tmp_bandwidth, tmp_central_wavelength = self.l7_waves
-        elif mode=="modis":
-            tmp_infos = self.bands_modis_infos
-            res = self.mo_res
-            tmp_bandwidth, tmp_central_wavelength = self.mo_waves
+
 
         # handle singleton dims
         if im_sen.ndim == 4:
@@ -436,13 +409,6 @@ class transformations_config_flair(nn.Module):
         img_size = H
 
 
-        # 1) Time encoding
-
-        time_encoding = self.time_encoding(dates_sen, img_size).unsqueeze(-2)
-        c1 = tmp_bandwidth.shape[0]
-        time_encoding = time_encoding.expand(
-            B_size, T_size, H, W, c1, -1
-        )
 
 
         # 2) Wavelength encoding
@@ -466,13 +432,12 @@ class transformations_config_flair(nn.Module):
         )
      
 
-    
         tokens = torch.cat([
             central_wavelength_processing,
             value_processed,
             band_post_proc,
-            time_encoding
         ], dim=5)
+        
         tokens = einops.rearrange(tokens, "b t h w c f -> b (t h w c) f")
         token_masks = einops.rearrange(mask_sen, "b t h w c -> b (t h w c)")
 
@@ -482,15 +447,12 @@ class transformations_config_flair(nn.Module):
 
     
 
-    def apply_transformations_SAR(self,im_sen,dates_sen,mask_sen,mode,wave_encoding=None):
+    def apply_transformations_SAR(self,im_sen,mask_sen,mode,wave_encoding=None):
         if mode=="s1":
             tmp_infos=self.bands_sen2_infos
             res=None
             tmp_bandwidth=None
-        elif mode=="alos":
-            tmp_infos=self.bands_l7_infos
-            res=None
-            tmp_bandwidth=None
+
         
         im_sen=im_sen[:,:,:,:,:-1]
         mask_sen=mask_sen[:,:,:,:,:-1]
@@ -498,11 +460,7 @@ class transformations_config_flair(nn.Module):
 
      
         
-        img_size=im_sen.shape[3]
         
-        time_encoding=self.time_encoding(dates_sen,img_size).unsqueeze(-2)
-        #time_encoding=einops.repeat(time_encoding,"b t h w c e -> b t h w (c1 c) e ",c1=im_sen.shape[-1])
-
         c1 = im_sen.shape[-1]
         time_encoding = time_encoding.expand(
             -1,   # B stays the same
@@ -544,7 +502,6 @@ class transformations_config_flair(nn.Module):
         tokens=torch.cat([central_wavelength_processing.to(im_sen.device),
                           value_processed.to(im_sen.device),
                           band_post_proc.to(im_sen.device),
-                          time_encoding.to(im_sen.device)         
                 ],dim=5)
         
         

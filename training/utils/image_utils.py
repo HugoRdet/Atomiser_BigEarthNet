@@ -41,24 +41,21 @@ def change_size_get_only_coordinates(orig_size,new_size):
     y_max=int(new_center_y+new_size/2.0)
     return (x_min,x_max,y_min,y_max)
 
-def change_size(img,coordinates,padding=True):
+def change_size(img,mask,coordinates):
     orig_size=img.shape[1]
 
     x_min,x_max,y_min,y_max=coordinates
     
     new_img=img[:,x_min:x_max,y_min:y_max]
 
-    if padding:
-        padded_img=torch.zeros(img.shape)
-        padding_size=int((orig_size-(x_max-x_min))/2.0)
-        
-        padded_img[:,padding_size:-padding_size,padding_size:-padding_size]=new_img
-        return padded_img
     
-
-
+    padded_img=torch.zeros(img.shape)
+    padding_size=int((orig_size-(x_max-x_min))/2.0)
     
-    return new_img
+    padded_img[:,padding_size:-padding_size,padding_size:-padding_size]=new_img
+    mask[:,:,:]=0.0
+    mask[:,padding_size:-padding_size,padding_size:-padding_size]=1.0
+    return padded_img,mask
 
 def random_value_from_range(min_value, max_value, step):
         """
@@ -90,32 +87,21 @@ def random_value_from_range(min_value, max_value, step):
         return random_value
 
 
-def change_resolution(img,target_size,keep_res=True):   
+def change_resolution(img,mask,target_size,keep_res=True):   
     orig_size=img.shape[1]
     img=v2.Resize(size=target_size)(img)
-    if keep_res:
-        img=v2.Resize(size=orig_size)(img)
-    return img
+    img=v2.Resize(size=orig_size)(img)
+    return img,mask
 
-def remove_bands(img, bands_ids, replace=True):
+def remove_bands(img,mask, bands_ids):
     # img shape: H x W x C
     
-    if replace:
-        img[bands_ids,:, :] = 0.0
-    else:
-        keep_indices = [i for i in range(img.shape[-1]) if i not in bands_ids]
-        img = img[keep_indices,:, :]  # On conserve uniquement les canaux nécessaires
-    return img
 
-def remove_bands_atomizer(img, bands_ids, replace=True):
+    img[bands_ids,:, :] = 0.0
+    mask[bands_ids,:,:] = 0.0
 
-    
-    if replace:
-        img[bands_ids,:, :] = 0.0
-    else:
-        keep_indices = [i for i in range(img.shape[0]) if i not in bands_ids]
-        img = img[keep_indices,:, :]  # On conserve uniquement les canaux nécessaires
-    return img
+    return img,mask
+
 
 
 def apply_dico_transformations(img,dico,keep_shape=True):
