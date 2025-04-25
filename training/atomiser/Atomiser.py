@@ -79,10 +79,10 @@ class Atomiser(pl.LightningModule):
         input_dim = dx + dy + dw + db
 
         # Initialize spectral params
-        self.VV = nn.Parameter(torch.empty(dw))
-        self.VH = nn.Parameter(torch.empty(dw))
-        nn.init.trunc_normal_(self.VV, std=0.02, a=-2., b=2.)
-        nn.init.trunc_normal_(self.VH, std=0.02, a=-2., b=2.)
+        #self.VV = nn.Parameter(torch.empty(dw))
+        #self.VH = nn.Parameter(torch.empty(dw))
+        #nn.init.trunc_normal_(self.VV, std=0.02, a=-2., b=2.)
+        #nn.init.trunc_normal_(self.VH, std=0.02, a=-2., b=2.)
 
         # Latents
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
@@ -124,7 +124,7 @@ class Atomiser(pl.LightningModule):
         #d
         # Build cross/self-attn layers
         self.layers = nn.ModuleList()
-        for i in range(0):
+        for i in range(depth):
             cache_args = {'_cache': (i>0 and weight_tie_layers)}
             # cross
             cross_attn = get_cross_attn(**cache_args)
