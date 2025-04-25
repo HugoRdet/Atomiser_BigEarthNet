@@ -121,7 +121,7 @@ class Atomiser(pl.LightningModule):
             latent_dim,
             FeedForward(latent_dim, dropout=ff_dropout)
         ))
-
+        #d
         # Build cross/self-attn layers
         self.layers = nn.ModuleList()
         for i in range(depth):
