@@ -183,9 +183,10 @@ class Atomiser(pl.LightningModule):
         if len(data.shape)==3:
             tokens=data
             tokens_mask=mask
-            print(tokens.shape)
+            
         else:
             tokens, tokens_mask = self.transform.process_data(data, mask)
+            print(tokens.shape)
 
 
 
