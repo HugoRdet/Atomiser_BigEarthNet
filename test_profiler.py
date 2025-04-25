@@ -101,11 +101,11 @@ profiler = AdvancedProfiler(dirpath="profiling", filename="profiler_output.txt")
 # Configure the trainer for distributed training.
 trainer = Trainer(
     use_distributed_sampler=False,  # we use our custom sampler
-    #strategy="ddp",
+    strategy="ddp",
     max_epochs=config_model["trainer"]["epochs"],
     logger=wandb_logger,
     log_every_n_steps=1,
-    #devices=1,
+    devices=-1,
     accelerator="gpu",
     callbacks=[early_stop_callback],
     profiler=profiler  
