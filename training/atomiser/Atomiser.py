@@ -213,10 +213,6 @@ class Atomiser(pl.LightningModule):
                 x = sa(x) + x
                 x = ff(x) + x
 
-        # latent-only layers
-        for (sa, ff) in self.latent_attn_layers:
-            x = sa(x) + x
-            x = ff(x) + x
 
         # classifier
         return self.to_logits(x)
