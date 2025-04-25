@@ -40,7 +40,7 @@ test_conf= transformations_config(bands_yaml,config_dico)
 
 
 
-data_module=Tiny_BigEarthNetDataModule( "./data/Tiny_BigEarthNet/regular", batch_size=16, num_workers=4,trans_modalities=modalities_trans,model="Atomiser")
+data_module=Tiny_BigEarthNetDataModule( "./data/Tiny_BigEarthNet/regular", batch_size=16, num_workers=4,trans_modalities=modalities_trans,trans_tokens=test_conf,model="Atomiser")
 
 data_module.setup()
 # Prepare dataloaders
