@@ -140,6 +140,18 @@ class Model(pl.LightningModule):
         self.metric_train_AP_per_class.update(y_hat, labels.to(torch.int))
         self.log("train_loss", loss, on_step=False, on_epoch=True, logger=False, sync_dist=False)
         return loss
+    
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        # only on the very first real training batch, and only on rank 0
+        if batch_idx == 0 and self.trainer.global_rank == 0:
+            missing = []
+            for name, p in self.encoder.named_parameters():
+                if p.requires_grad and p.grad is None:
+                    missing.append(name)
+            if missing:
+                print("⚠️ Still no grad for:\n" + "\n".join(missing))
+            else:
+                print("✅ All parameters got gradients!")
         
     def on_train_epoch_end(self):
         self.compute_metrics(mode="train", all_classes=False,table=self.table)
