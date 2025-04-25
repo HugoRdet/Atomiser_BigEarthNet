@@ -186,7 +186,6 @@ class Atomiser(pl.LightningModule):
             tokens, tokens_mask = self.transform.process_data(data, mask)
 
 
-        print(tokens.shape)
 
         b = tokens.shape[0]
         # initialize latents
