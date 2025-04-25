@@ -549,7 +549,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         self.model = model
         self.modality=modality
         self.trans_tokens=trans_tokens
-        print("TRANS TOKENS",self.trans_tokens)
+ 
 
     def setup(self, stage=None):
 
