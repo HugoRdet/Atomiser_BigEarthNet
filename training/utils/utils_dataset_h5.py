@@ -592,6 +592,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         # Create the custom distributed sampler inside the DataLoader call.
 
         if self.modality==None:
+            print("je suis la")
             self.modality="train"
 
         if self.trans_tokens!=None:
