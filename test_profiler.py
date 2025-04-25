@@ -25,6 +25,14 @@ util.MESSAGE_LEVEL = util.MessageLevel.INFO  # use INFO to see all messages
 
 from configilm.extra.DataSets import BENv2_DataSet
 from configilm.extra.DataModules import BENv2_DataModule
+from pytorch_lightning import Trainer,seed_everything
+from pytorch_lightning.callbacks import EarlyStopping
+
+seed_everything(42, workers=True)
+
+torch.set_default_dtype(torch.float32)
+torch.set_float32_matmul_precision('medium')
+
 
 torch.manual_seed(0)
 
@@ -40,7 +48,12 @@ test_conf= transformations_config(bands_yaml,config_dico)
 
 
 
-data_module=Tiny_BigEarthNetDataModule( "./data/Tiny_BigEarthNet/regular", batch_size=16, num_workers=4,trans_modalities=modalities_trans,trans_tokens=test_conf,model="Atomiser")
+data_module=Tiny_BigEarthNetDataModule( "./data/Tiny_BigEarthNet/regular", 
+                                       batch_size=16, 
+                                       num_workers=4,
+                                       trans_modalities=modalities_trans,
+                                       trans_tokens=test_conf,
+                                       model="Atomiser")
 
 data_module.setup()
 # Prepare dataloaders
@@ -53,13 +66,7 @@ xp_name="test_xp"
 config_model = "Atomiser_Atos"
 config_name_dataset = "tiny"
 config_name_dataset= "./data/custom_flair/"+config_name_dataset
-from pytorch_lightning import Trainer,seed_everything
-from pytorch_lightning.callbacks import EarlyStopping
 
-seed_everything(42, workers=True)
-
-torch.set_default_dtype(torch.float32)
-torch.set_float32_matmul_precision('medium')
 
 config_model = read_yaml("./training/configs/config_test-"+config_model+".yaml")
 #labels=load_json_to_dict("./data/flair_2_toy_dataset/flair_labels.json")
@@ -69,17 +76,6 @@ bands_yaml="./data/bands_info/bands.yaml"
 configs_dataset="./data/Tiny_BigEarthNet/configs_dataset_regular.yaml"
 config_dico = read_yaml("./training/configs/config_test-Atomiser_Atos.yaml")
 
-modalities_trans= modalities_transformations_config(configs_dataset,name_config="regular")
-test_conf= transformations_config(bands_yaml,config_dico)
-       
-data_module=Tiny_BigEarthNetDataModule( "./data/Tiny_BigEarthNet/regular", 
-                                       batch_size=16, 
-                                       num_workers=4,
-                                       trans_modalities=modalities_trans,
-                                       trans_tokens=None,
-                                       model="Atomiser")
-
-data_module.setup()
 # Prepare dataloaders
 
 wand = False
