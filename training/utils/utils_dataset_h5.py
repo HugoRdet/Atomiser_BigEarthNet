@@ -620,6 +620,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
                 num_workers=self.num_workers,
                 #worker_init_fn=_init_worker,
                 pin_memory=True,
+                batch_size=self.batch_size,
                 prefetch_factor=8,  # increased prefetch for smoother transfers
                 persistent_workers=True  # avoid worker restart overhead
             )
@@ -662,6 +663,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
                 #worker_init_fn=_init_worker,
                 #batch_sampler=batch_sampler,
                 pin_memory=True,
+                batch_size=self.batch_size,
                 prefetch_factor=8,  # increased prefetch for smoother transfers
                 persistent_workers=True  # avoid worker restart overhead
             )
@@ -701,6 +703,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             return DataLoader(
                 self.test_dataset,
                 num_workers=self.num_workers,
+                batch_size=self.batch_size,
                 #worker_init_fn=_init_worker,
                 #batch_sampler=batch_sampler,
                 pin_memory=True,
