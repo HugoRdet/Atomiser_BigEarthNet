@@ -414,16 +414,18 @@ class Tiny_BigEarthNet(Dataset):
         id_img = int(f[f'id_{idx}'][()])
 
         
-        image,attention_mask=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode)
 
         if self.transform_tokens!=None:
-            image,attention_mask=self.transform_tokens.process_data(image.unsqueeze(0),attention_mask.unsqueeze(0))
-            image=image.squeeze(0)
-            attention_mask=attention_mask.squeeze(0)
 
-            cond=attention_mask==1
-            image=image[cond]
-            attention_mask=attention_mask[cond]
+            image,attention_mask=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode)
+            if self.transform_tokens!=None:
+                image,attention_mask=self.transform_tokens.process_data(image.unsqueeze(0),attention_mask.unsqueeze(0))
+                image=image.squeeze(0)
+                attention_mask=attention_mask.squeeze(0)
+
+                cond=attention_mask==1
+                image=image[cond]
+                attention_mask=attention_mask[cond]
 
 
 
@@ -589,53 +591,82 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         if self.modality==None:
             self.modality="train"
 
-        batch_sampler = DistributedShapeBasedBatchSampler(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            drop_last=False,
-            mode=self.modality
-        )
+        if self.trans_tokens!=None:
+
+            batch_sampler = DistributedShapeBasedBatchSampler(
+                self.train_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                drop_last=False,
+                mode=self.modality
+            )
 
  
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        print(f"Train DataLoader created on rank: {rank}")
-        return DataLoader(
-            self.train_dataset,
-            num_workers=self.num_workers,
-            #worker_init_fn=_init_worker,
-            batch_sampler=batch_sampler,
-            #pin_memory=True,
-            #prefetch_factor=8,  # increased prefetch for smoother transfers
-            #persistent_workers=True  # avoid worker restart overhead
-        )
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            print(f"Train DataLoader created on rank: {rank}")
+            return DataLoader(
+                self.train_dataset,
+                num_workers=self.num_workers,
+                #worker_init_fn=_init_worker,
+                batch_sampler=batch_sampler,
+                #pin_memory=True,
+                #prefetch_factor=8,  # increased prefetch for smoother transfers
+                #persistent_workers=True  # avoid worker restart overhead
+            )
+        else:
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            print(f"Train DataLoader created on rank: {rank}")
+            return DataLoader(
+                self.train_dataset,
+                num_workers=self.num_workers,
+                #worker_init_fn=_init_worker,
+                pin_memory=True,
+                prefetch_factor=8,  # increased prefetch for smoother transfers
+                persistent_workers=True  # avoid worker restart overhead
+            )
+
 
     def val_dataloader(self):
 
         if self.modality==None:
             self.modality="validation"
 
+        if self.trans_tokens!=None:
 
-        batch_sampler = DistributedShapeBasedBatchSampler(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            drop_last=False,
-            mode=self.modality
-        )
+
+            batch_sampler = DistributedShapeBasedBatchSampler(
+                self.val_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                drop_last=False,
+                mode=self.modality
+            )
 
  
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        print(f"Validation DataLoader created on rank: {rank}")
-        return DataLoader(
-            self.val_dataset,
-            num_workers=self.num_workers,
-            #worker_init_fn=_init_worker,
-            batch_sampler=batch_sampler,
-            #pin_memory=True,
-            #prefetch_factor=8,  # increased prefetch for smoother transfers
-            #persistent_workers=True  # avoid worker restart overhead
-        )
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            print(f"Validation DataLoader created on rank: {rank}")
+            return DataLoader(
+                self.val_dataset,
+                num_workers=self.num_workers,
+                #worker_init_fn=_init_worker,
+                batch_sampler=batch_sampler,
+                #pin_memory=True,
+                #prefetch_factor=8,  # increased prefetch for smoother transfers
+                #persistent_workers=True  # avoid worker restart overhead
+            )
+        else:
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            print(f"Validation DataLoader created on rank: {rank}")
+            return DataLoader(
+                self.val_dataset,
+                num_workers=self.num_workers,
+                #worker_init_fn=_init_worker,
+                #batch_sampler=batch_sampler,
+                pin_memory=True,
+                prefetch_factor=8,  # increased prefetch for smoother transfers
+                persistent_workers=True  # avoid worker restart overhead
+            )
+
 
     def test_dataloader(self):
 
@@ -643,23 +674,37 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         if self.modality==None:
             self.modality="test"
 
-        batch_sampler = DistributedShapeBasedBatchSampler(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            drop_last=False,
-            mode=self.modality
-        )
+        if self.trans_tokens!=None:
+
+            batch_sampler = DistributedShapeBasedBatchSampler(
+                self.test_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                drop_last=False,
+                mode=self.modality
+            )
 
 
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        print(f"Test DataLoader created on rank: {rank}")
-        return DataLoader(
-            self.test_dataset,
-            num_workers=self.num_workers,
-            #worker_init_fn=_init_worker,
-            batch_sampler=batch_sampler,
-            #pin_memory=True,
-            #prefetch_factor=4,  # increased prefetch for smoother transfers
-            #persistent_workers=True  # avoid worker restart overhead
-        )
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            print(f"Test DataLoader created on rank: {rank}")
+            return DataLoader(
+                self.test_dataset,
+                num_workers=self.num_workers,
+                #worker_init_fn=_init_worker,
+                batch_sampler=batch_sampler,
+                #pin_memory=True,
+                #prefetch_factor=4,  # increased prefetch for smoother transfers
+                #persistent_workers=True  # avoid worker restart overhead
+            )
+        else:
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            print(f"Test DataLoader created on rank: {rank}")
+            return DataLoader(
+                self.test_dataset,
+                num_workers=self.num_workers,
+                #worker_init_fn=_init_worker,
+                #batch_sampler=batch_sampler,
+                pin_memory=True,
+                prefetch_factor=4,  # increased prefetch for smoother transfers
+                persistent_workers=True  # avoid worker restart overhead
+            )
