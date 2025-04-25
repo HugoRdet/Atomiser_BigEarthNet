@@ -63,7 +63,7 @@ class Atomiser(pl.LightningModule):
         masking: float = 0.,
     ):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['transform'])
         self.input_axis = input_axis
         self.masking = masking
         self.config = config
@@ -125,27 +125,22 @@ class Atomiser(pl.LightningModule):
         # Build cross/self-attn layers
         self.layers = nn.ModuleList()
         for i in range(depth):
-            cache_args = {'_cache': (i>0 and weight_tie_layers), 'key': i}
+            cache_args = {'_cache': (i>0 and weight_tie_layers)}
             # cross
             cross_attn = get_cross_attn(**cache_args)
             cross_ff   = get_cross_ff(**cache_args)
             # self
             self_attns = nn.ModuleList()
+            
             for j in range(self_per_cross_attn):
                 self_attns.append(nn.ModuleList([
-                    get_latent_attn(**{'_cache':(j>0 and weight_tie_layers),'key':j}),
-                    get_latent_ff(**{'_cache':(j>0 and weight_tie_layers),'key':j})
+                    get_latent_attn(**cache_args, key = j),
+                    get_latent_ff(**cache_args, key = j)
                 ]))
+
             self.layers.append(nn.ModuleList([cross_attn, cross_ff, self_attns]))
 
-        # Additional latent-only layers
-        self.latent_attn_layers = nn.ModuleList()
-        for i in range(latent_attn_depth):
-            cache_args = {'_cache':(i>0 and weight_tie_layers), 'key':i}
-            self.latent_attn_layers.append(nn.ModuleList([
-                get_latent_attn(**cache_args),
-                get_latent_ff(**cache_args)
-            ]))
+  
 
         # Classifier
         if final_classifier_head:

@@ -183,16 +183,23 @@ class CrossAttention(nn.Module):
 
 
 class LatentAttentionPooling(nn.Module):
-    def __init__(self, dim: int, heads: int = 4, dim_head: int = 64, dropout: float = 0.):
+    def __init__(self, dim, heads=4, dim_head=64, dropout=0.):
         super().__init__()
         self.query = nn.Parameter(torch.randn(1, 1, dim))
-        self.attn = SelfAttention(dim, heads=heads, dim_head=dim_head, dropout=dropout)
+        self.cross  = CrossAttention(
+            query_dim   = dim,
+            context_dim = dim,
+            heads       = heads,
+            dim_head    = dim_head,
+            dropout     = dropout
+        )
 
     def forward(self, x):
         b = x.size(0)
         q = repeat(self.query, '1 1 d -> b 1 d', b=b)
-        out = self.attn(q, mask=None, context=x) if hasattr(self.attn, 'context') else self.attn(q, mask=None)
+        out = self.cross(q, context=x, mask=None)
         return out.squeeze(1)
+
 
 class LinearAttention(nn.Module):
     def __init__(self, dim: int, heads: int = 4, dim_head: int = 64, dropout: float = 0.):
