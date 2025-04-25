@@ -178,15 +178,14 @@ class Atomiser(pl.LightningModule):
 
     def forward(self, data, mask=None, training=False):
         # Preprocess tokens + mask
-        print("ayo")
-        print(data.shape)
+        
         if len(data.shape)==3:
             tokens=data
             tokens_mask=mask
             
         else:
             tokens, tokens_mask = self.transform.process_data(data, mask)
-            print(tokens.shape)
+        
 
 
 
