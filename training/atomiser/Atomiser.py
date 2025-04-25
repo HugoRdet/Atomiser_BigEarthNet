@@ -70,11 +70,13 @@ class Atomiser(pl.LightningModule):
         self.transform = transform
 
         # Compute input dim from encodings
+        shape_input_year = self.get_shape_attributes_config("year")
+        shape_input_day = self.get_shape_attributes_config("day")
         dx = self.get_shape_attributes_config("pos")
         dy = self.get_shape_attributes_config("pos")
         dw = self.get_shape_attributes_config("wavelength")
         db = self.get_shape_attributes_config("bandvalue")
-        input_dim = dx + dy + dw + db
+        input_dim = dx + dy + dw + db+ shape_input_day + shape_input_year
 
         # Initialize spectral params
         self.VV = nn.Parameter(torch.empty(dw))
@@ -187,6 +189,9 @@ class Atomiser(pl.LightningModule):
             tokens_mask=mask
         else:
             tokens, tokens_mask = self.transform.process_data(data, mask)
+
+
+        print(tokens.shape)
 
         b = tokens.shape[0]
         # initialize latents

@@ -72,7 +72,12 @@ config_dico = read_yaml("./training/configs/config_test-Atomiser_Atos.yaml")
 modalities_trans= modalities_transformations_config(configs_dataset,name_config="regular")
 test_conf= transformations_config(bands_yaml,config_dico)
        
-data_module=Tiny_BigEarthNetDataModule( "./data/Tiny_BigEarthNet/regular", batch_size=16, num_workers=4,trans_modalities=modalities_trans,model="Atomiser")
+data_module=Tiny_BigEarthNetDataModule( "./data/Tiny_BigEarthNet/regular", 
+                                       batch_size=16, 
+                                       num_workers=4,
+                                       trans_modalities=modalities_trans,
+                                       trans_tokens=test_conf,
+                                       model="Atomiser")
 
 data_module.setup()
 # Prepare dataloaders
