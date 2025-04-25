@@ -425,7 +425,7 @@ class Tiny_BigEarthNet(Dataset):
             cond=attention_mask==1
             image=image[cond]
             attention_mask=attention_mask[cond]
-            print('je uis la')
+            
 
 
 
@@ -551,6 +551,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         self.trans_tokens=trans_tokens
 
     def setup(self, stage=None):
+
+        print("TRANS TOKENS",self.trans_tokens)
         
         self.train_dataset = Tiny_BigEarthNet(
             self.train_file,
