@@ -306,10 +306,9 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
         for elem_id in l_samples:
             img, label = ds[elem_id]  # shape (12, 120, 120)
 
-            if trans_config!=None:
-                trans_config.create_transform_image_dico(int(elem_id),mode="train",modality_folder=mode)
-                trans_config.create_transform_image_dico(int(elem_id),mode="test",modality_folder=mode)
-                trans_config.create_transform_image_dico(int(elem_id),mode="validation",modality_folder=mode)
+            trans_config.create_transform_image_dico(int(elem_id),mode="train",modality_folder=mode)
+            trans_config.create_transform_image_dico(int(elem_id),mode="test",modality_folder=mode)
+            trans_config.create_transform_image_dico(int(elem_id),mode="validation",modality_folder=mode)
 
             # Convert to float (if needed) before normalization
             img = img.float()
@@ -418,14 +417,14 @@ class Tiny_BigEarthNet(Dataset):
         if self.transform_tokens!=None:
 
             image,attention_mask=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode)
-            if self.transform_tokens!=None:
-                image,attention_mask=self.transform_tokens.process_data(image.unsqueeze(0),attention_mask.unsqueeze(0))
-                image=image.squeeze(0)
-                attention_mask=attention_mask.squeeze(0)
+            
+            image,attention_mask=self.transform_tokens.process_data(image.unsqueeze(0),attention_mask.unsqueeze(0))
+            image=image.squeeze(0)
+            attention_mask=attention_mask.squeeze(0)
 
-                cond=attention_mask==1
-                image=image[cond]
-                attention_mask=attention_mask[cond]
+            cond=attention_mask==1
+            image=image[cond]
+            attention_mask=attention_mask[cond]
 
 
 
