@@ -425,6 +425,7 @@ class Tiny_BigEarthNet(Dataset):
             cond=attention_mask==1
             image=image[cond]
             attention_mask=attention_mask[cond]
+            print('je uis la')
 
 
 
