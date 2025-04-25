@@ -76,6 +76,7 @@ class Atomiser(pl.LightningModule):
         dy = self.get_shape_attributes_config("pos")
         dw = self.get_shape_attributes_config("wavelength")
         db = self.get_shape_attributes_config("bandvalue")
+        #ok
         input_dim = dx + dy + dw + db+ shape_input_day + shape_input_year
 
         # Initialize spectral params
