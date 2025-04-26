@@ -574,6 +574,16 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             mode="validation",
         )
 
+        self.val_dataset_mode_train = Tiny_BigEarthNet(
+            self.val_file,
+            transform=self.trans_modalities,
+            transform_tokens=self.trans_tokens,
+            model=self.model,
+            mode="validation",
+        )
+
+        self.val_dataset_mode_train.modality_mode="train"
+
         if self.modality!=None:
             self.val_dataset.modality_mode=self.modality
             
@@ -662,7 +672,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         else:
             rank = dist.get_rank() if dist.is_initialized() else 0
             print(f"Validation DataLoader created on rank: {rank}")
-            return DataLoader(
+
+            val_mod_val=DataLoader(
                 self.val_dataset,
                 num_workers=self.num_workers,
                 #worker_init_fn=_init_worker,
@@ -672,6 +683,18 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
                 prefetch_factor=8,  # increased prefetch for smoother transfers
                 persistent_workers=True  # avoid worker restart overhead
             )
+
+            val_mod_train=DataLoader(
+                self.val_dataset_mode_train,
+                num_workers=self.num_workers,
+                #worker_init_fn=_init_worker,
+                #batch_sampler=batch_sampler,
+                pin_memory=True,
+                batch_size=self.batch_size,
+                prefetch_factor=8,  # increased prefetch for smoother transfers
+                persistent_workers=True  # avoid worker restart overhead
+            )
+            return [val_mod_val,val_mod_train]
 
 
     def test_dataloader(self):
