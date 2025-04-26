@@ -31,6 +31,7 @@ warnings.filterwarnings("ignore", message="No positive samples found in target, 
 class Model(pl.LightningModule):
     def __init__(self, config, wand, name,transform):
         super().__init__()
+        self.strict_loading = False
         self.config = config
         self.transform=transform
         self.wand = wand
