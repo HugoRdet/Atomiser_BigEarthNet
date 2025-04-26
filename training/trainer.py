@@ -198,32 +198,12 @@ class Model(pl.LightningModule):
         self.compute_metrics(mode="val_mod_val", all_classes=False,table=self.table)
         self.compute_metrics(mode="val_mod_train", all_classes=False,table=self.table)
         
-        metrics = self.trainer.callback_metrics
-        
-        val_mod_val_loss = metrics.get("val_mod_val_loss", float("inf"))
-        val_mod_val_ap = metrics.get("val_mod_val_ap", float("-inf"))
-
-        val_mod_train_loss = metrics.get("val_mod_train_loss", float("inf"))
-        val_mod_train_ap = metrics.get("val_mod_train_ap", float("-inf"))
 
         self.trainer.datamodule.val_dataset.reset_modality_mode()
         
         if self.table:
             return None
-        else:
-            self.log("val_mod_val_loss", val_mod_val_loss, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("log val_mod_val_loss", np.log(val_mod_val_loss), on_step=False, on_epoch=True, logger=True, sync_dist=True)
-
-            self.log("val_mod_train_loss", val_mod_train_loss, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("log val_mod_train_loss", np.log(val_mod_train_loss), on_step=False, on_epoch=True, logger=True, sync_dist=True)
         
-
-            
-        
-            return {"val_mod_val_loss": val_mod_val_loss, 
-                    "val_mod_val_ap": val_mod_val_ap,
-                    "val_mod_train_loss": val_mod_train_loss, 
-                    "val_mod_train_ap": val_mod_train_ap}
         
         
     
