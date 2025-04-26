@@ -211,10 +211,10 @@ class Model(pl.LightningModule):
             return None
         else:
             self.log("val_mod_val_loss", val_mod_val_loss, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("log val_mod_val_loss", np.log(val_mod_val_loss.item()), on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log("log val_mod_val_loss", np.log(val_mod_val_loss), on_step=False, on_epoch=True, logger=True, sync_dist=True)
 
             self.log("val_mod_train_loss", val_mod_train_loss, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("log val_mod_train_loss", np.log(val_mod_train_loss.item()), on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log("log val_mod_train_loss", np.log(val_mod_train_loss), on_step=False, on_epoch=True, logger=True, sync_dist=True)
         
 
             
