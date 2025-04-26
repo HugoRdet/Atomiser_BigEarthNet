@@ -89,51 +89,69 @@ if wand:
         )
         wandb_logger = WandbLogger(project="Atomizer_BigEarthNet")
 
+# … everything up through your wandb / logger setup is unchanged …
 
 checkpoint_dir = "./checkpoints"
 all_ckpt_files = [
-    os.path.join(checkpoint_dir, f) 
-    for f in os.listdir(checkpoint_dir) 
+    os.path.join(checkpoint_dir, f)
+    for f in os.listdir(checkpoint_dir)
     if f.endswith(".ckpt")
 ]
+if not all_ckpt_files:
+    raise FileNotFoundError(f"No checkpoints found in {checkpoint_dir}")
 
-# Try to filter files by xp_name if any checkpoint includes it.
-checkpoint_files = [f for f in all_ckpt_files if xp_name in os.path.basename(f)]
+def latest_ckpt_for(prefix: str):
+    # filter to files that start with the prefix,
+    # then pick the most recently‐modified one
+    matches = [f for f in all_ckpt_files if os.path.basename(f).startswith(prefix)]
+    if not matches:
+        raise FileNotFoundError(f"No checkpoints matching {prefix}* in {checkpoint_dir}")
+    return max(matches, key=os.path.getmtime)
 
-# If no file contains xp_name, fallback to using all checkpoint files.
-if not checkpoint_files:
-    checkpoint_files = all_ckpt_files
+# 1) Best model according to val_mod_train AP
+ckpt_train = latest_ckpt_for("best_model_val_mod_train")
+print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 
-if not checkpoint_files:
-    raise FileNotFoundError(f"No checkpoint found in {checkpoint_dir}.")
+# 2) Best model according to val_mod_val AP
+ckpt_val = latest_ckpt_for("best_model_val_mod_val")
+print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 
-# Sort the selected checkpoint files by modification time and choose the most recent one.
-checkpoint_path = sorted(checkpoint_files, key=os.path.getmtime)[-1]
-print(f"Loading best checkpoint: {checkpoint_path}")
-
-model = Model(config_model,wand=wand, name=xp_name,transform=test_conf)
-
-data_module=Tiny_BigEarthNetDataModule( f"./data/Tiny_BigEarthNet/{config_name_dataset}", 
-                                       batch_size=config_model["dataset"]["batchsize"], 
-                                       num_workers=4,
-                                       trans_modalities=modalities_trans,
-                                       trans_tokens=None,
-                                       model=config_model["encoder"])
-
-
-
-
-# Trainer
-test_trainer = Trainer(
-    use_distributed_sampler=False,
-    max_epochs=config_model["trainer"]["epochs"],
-    logger=wandb_logger,
-    log_every_n_steps=1,
-    accelerator="gpu",
-    default_root_dir="./checkpoints/"
+# Instantiate your model and datamodule just once
+model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+data_module = Tiny_BigEarthNetDataModule(
+    f"./data/Tiny_BigEarthNet/{config_name_dataset}",
+    batch_size=config_model["dataset"]["batchsize"],
+    num_workers=4,
+    trans_modalities=modalities_trans,
+    trans_tokens=None,
+    model=config_model["encoder"],
 )
 
-# Evaluate the model
-test_trainer.test(model, datamodule=data_module)
+# One Trainer is enough; we'll just call .test twice
+test_trainer = Trainer(
+    use_distributed_sampler=False,
+    accelerator="gpu",
+    devices=[1],
+    logger=wandb_logger,
+    default_root_dir="./checkpoints/",
+)
 
+# Test the “train‐best” checkpoint
+test_results_train = test_trainer.test(
+    model=model,
+    datamodule=data_module,
+    ckpt_path=ckpt_train,
+    verbose=True
+)
 
+# Test the “val‐best” checkpoint
+# (Lightning will re-load the model from the new checkpoint)
+test_results_val = test_trainer.test(
+    model=model,
+    datamodule=data_module,
+    ckpt_path=ckpt_val,
+    verbose=True
+)
+
+print("Results for best_model_val_mod_train:", test_results_train)
+print("Results for best_model_val_mod_val:  ", test_results_val)
