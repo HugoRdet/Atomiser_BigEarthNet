@@ -88,7 +88,7 @@ data_module=Tiny_BigEarthNetDataModule( f"./data/Tiny_BigEarthNet/{config_name_d
 # Callbacks
 checkpoint_callback_val_mod_val = ModelCheckpoint(
     dirpath="./checkpoints/",
-    filename="best_model_val_mod_val-{epoch:02d}-{val_F1:.4f}",
+    filename="best_model_val_mod_val-{epoch:02d}-{val_mod_val_ap:.4f}",
     monitor="val_mod_val_ap",
     mode="max",
     save_top_k=1,
@@ -97,7 +97,7 @@ checkpoint_callback_val_mod_val = ModelCheckpoint(
 
 checkpoint_callback_val_mod_train = ModelCheckpoint(
     dirpath="./checkpoints/",
-    filename="best_model_val_mod_train-{epoch:02d}-{val_F1:.4f}",
+    filename="best_model_val_mod_train-{epoch:02d}-{val_mod_train_ap:.4f}",
     monitor="val_mod_train_ap",
     mode="max",
     save_top_k=1,
@@ -113,7 +113,7 @@ checkpoint_callback_val_mod_train = ModelCheckpoint(
 #)
 
 
-accumulator = GradientAccumulationScheduler(scheduling={0: 32})
+accumulator = GradientAccumulationScheduler(scheduling={0: 1})
 
 # Trainer
 trainer = Trainer(
