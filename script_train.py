@@ -127,7 +127,7 @@ trainer = Trainer(
     callbacks=[checkpoint_callback_val_mod_val,checkpoint_callback_val_mod_train,accumulator],
     default_root_dir="./checkpoints/",
     limit_train_batches=2,
-    limit_val_batches=2
+    limit_val_batches=2,
     #val_check_interval=0.3,
     precision="bf16-mixed"
 )
