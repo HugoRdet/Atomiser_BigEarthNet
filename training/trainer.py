@@ -194,7 +194,8 @@ class Model(pl.LightningModule):
 
     def on_validation_epoch_end(self):
 
-        self.compute_metrics(mode="validation", all_classes=False,table=self.table)
+        self.compute_metrics(mode="val_mod_val", all_classes=False,table=self.table)
+        self.compute_metrics(mode="val_mod_train", all_classes=False,table=self.table)
         
         metrics = self.trainer.callback_metrics
         
