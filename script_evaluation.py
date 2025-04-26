@@ -134,6 +134,7 @@ test_trainer = Trainer(
     devices=[1],
     logger=wandb_logger,
     default_root_dir="./checkpoints/",
+    limit_test_batches=3,
 )
 
 # Test the “train‐best” checkpoint
