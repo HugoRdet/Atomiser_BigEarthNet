@@ -112,4 +112,4 @@ trainer = Trainer(
 )
 
 trainer.fit(model, datamodule=data_module)
-
+ 

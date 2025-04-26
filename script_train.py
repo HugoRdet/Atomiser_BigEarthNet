@@ -70,10 +70,10 @@ if wand:
         import wandb
         wandb.init(
             name=config_model['encoder'],
-            project="PLANTED",
+            project="Atomizer_BigEarthNet",
             config=config_model
         )
-        wandb_logger = WandbLogger(project="PLANTED")
+        wandb_logger = WandbLogger(project="Atomizer_BigEarthNet")
 
 
 checkpoint_dir = "./checkpoints"
