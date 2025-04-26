@@ -48,8 +48,10 @@ class Model(pl.LightningModule):
         self.metric_train_AP_per_class = torchmetrics.classification.MultilabelAveragePrecision(self.num_classes, average=None, thresholds=None)
         self.metric_train_accuracy_per_class = torchmetrics.classification.MultilabelAccuracy(self.num_classes, threshold=0.5, average=None)
 
-        self.metric_val_AP_per_class = torchmetrics.classification.MultilabelAveragePrecision(self.num_classes, average=None, thresholds=None)
-        self.metric_val_accuracy_per_class = torchmetrics.classification.MultilabelAccuracy(self.num_classes, threshold=0.5, average=None)
+        self.metric_val_mod_val_AP_per_class = torchmetrics.classification.MultilabelAveragePrecision(self.num_classes, average=None, thresholds=None)
+        self.metric_val_mod_val_accuracy_per_class = torchmetrics.classification.MultilabelAccuracy(self.num_classes, threshold=0.5, average=None)
+        self.metric_val_mod_train_AP_per_class = torchmetrics.classification.MultilabelAveragePrecision(self.num_classes, average=None, thresholds=None)
+        self.metric_val_mod_train_accuracy_per_class = torchmetrics.classification.MultilabelAccuracy(self.num_classes, threshold=0.5, average=None)
 
         self.metric_test_AP_per_class = torchmetrics.classification.MultilabelAveragePrecision(self.num_classes, average=None, thresholds=None)
         self.metric_test_accuracy_per_class = torchmetrics.classification.MultilabelAccuracy(self.num_classes, threshold=0.5, average=None)
@@ -167,48 +169,59 @@ class Model(pl.LightningModule):
 
 
         
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx,dataloader_idx=0):
         img, mask, labels, _ = batch
         y_hat = self.forward(img,mask)
 
-        if batch_idx<2:
-            self.metric_val_accuracy_per_class.update(y_hat, labels.to(torch.int))
-            self.metric_val_AP_per_class.update(y_hat, labels.to(torch.int))
-        
         loss = self.loss(y_hat, labels.float())
 
-        if not self.table:
-            self.log("val_loss", loss, on_step=False, on_epoch=True, logger=True, sync_dist=False)
+        
+        if dataloader_idx==0:
+            self.metric_val_mod_val_accuracy_per_class.update(y_hat, labels.to(torch.int))
+            self.metric_val_mod_val_AP_per_class.update(y_hat, labels.to(torch.int))
+
+            if not self.table:
+                self.log("val_mod_val_loss", loss, on_step=False, on_epoch=True, logger=True, sync_dist=False)
+        else:
+            self.metric_val_mod_train_accuracy_per_class.update(y_hat, labels.to(torch.int))
+            self.metric_val_mod_train_AP_per_class.update(y_hat, labels.to(torch.int))
+
+            if not self.table:
+                self.log("val_mod_train_loss", loss, on_step=False, on_epoch=True, logger=True, sync_dist=False)
+
 
         return loss        
 
     def on_validation_epoch_end(self):
-        if self.table:
-            modality= self.trainer.datamodule.val_dataset.modality_mode
-            self.compute_metrics(mode="validation", table=True, all_classes=False, modality=modality)
-        else:
-            self.compute_metrics(mode="validation", all_classes=False,table=self.table)
+
+        self.compute_metrics(mode="validation", all_classes=False,table=self.table)
         
         metrics = self.trainer.callback_metrics
-        val_loss = metrics.get("val_loss", float("inf"))
-        val_ap = metrics.get("val_ap", float("-inf"))
-
-
         
+        val_mod_val_loss = metrics.get("val_mod_val_loss", float("inf"))
+        val_mod_val_ap = metrics.get("val_mod_val_ap", float("-inf"))
 
-        
+        val_mod_train_loss = metrics.get("val_mod_train_loss", float("inf"))
+        val_mod_train_ap = metrics.get("val_mod_train_ap", float("-inf"))
+
         self.trainer.datamodule.val_dataset.reset_modality_mode()
         
         if self.table:
             return None
         else:
-            self.log("val_loss", val_loss, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("log val loss", np.log(val_loss.item()), on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log("val_mod_val_loss", val_mod_val_loss, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log("log val_mod_val_loss", np.log(val_mod_val_loss.item()), on_step=False, on_epoch=True, logger=True, sync_dist=True)
+
+            self.log("val_mod_train_loss", val_mod_train_loss, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log("log val_mod_train_loss", np.log(val_mod_train_loss.item()), on_step=False, on_epoch=True, logger=True, sync_dist=True)
         
 
             
         
-            return {"val_loss": val_loss, "val_ap": val_ap}
+            return {"val_mod_val_loss": val_mod_val_loss, 
+                    "val_mod_val_ap": val_mod_val_ap,
+                    "val_mod_train_loss": val_mod_train_loss, 
+                    "val_mod_train_ap": val_mod_train_ap}
         
     
         
@@ -236,9 +249,13 @@ class Model(pl.LightningModule):
             metric_accuracy=self.metric_train_accuracy_per_class
             metric_AP=self.metric_train_AP_per_class
 
-        if mode=="validation":
-            metric_accuracy=self.metric_val_accuracy_per_class
-            metric_AP=self.metric_val_AP_per_class
+        if mode=="val_mod_val":
+            metric_accuracy=self.metric_val_mod_val_accuracy_per_class
+            metric_AP=self.metric_val_mod_val_AP_per_class
+
+        if mode=="val_mod_train":
+            metric_accuracy=self.metric_val_mod_train_accuracy_per_class
+            metric_AP=self.metric_val_mod_train_AP_per_class
 
         if mode=="test":
             metric_accuracy=self.metric_test_accuracy_per_class
@@ -252,9 +269,14 @@ class Model(pl.LightningModule):
         metric_accuracy.reset()
         metric_AP.reset()
 
-        if mode=="validation":
-            self.log("val_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("val_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+        if mode=="val_mod_val":
+            self.log("val_mod_val_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log("val_mod_val_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+
+        if mode=="val_mod_train":
+            self.log("val_mod_train_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log("val_mod_train_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+
         if mode=="train":
             self.log("train_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
             self.log("train_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
@@ -273,12 +295,10 @@ class Model(pl.LightningModule):
         
         if self.wand and table:
 
-            print("VALIDATION")
 
             for idx in range(self.num_classes):
                 
                 class_name = self.labels_idx[str(int(idx))]
-                print("metriques: ",[class_name, per_class_acc[idx].item(), ap[idx].item()])
                 table_data.append([class_name, per_class_acc[idx].item(), ap[idx].item()])
             table_data.append(["Average", overall_accuracy, mean_ap])
         
