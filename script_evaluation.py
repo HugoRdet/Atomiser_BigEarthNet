@@ -8,7 +8,7 @@ from training import *
 import os
 from pytorch_lightning import Trainer,seed_everything
 from pytorch_lightning.loggers import WandbLogger
-
+ 
 import torch
 import numpy as np
 from torch import nn, einsum
@@ -66,11 +66,12 @@ seed_everything(42, workers=True)
 torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision('medium')
 
-config_model = read_yaml("./training/configs/config_test-Atomiser_Atos.yaml")
-labels = load_json_to_dict("./data/labels.json")
+config_model = read_yaml("./training/configs/"+config_model)
+configs_dataset=f"./data/Tiny_BigEarthNet/configs_dataset_{config_name_dataset}.yaml"
 bands_yaml = "./data/bands_info/bands.yaml"
 
-trans_config = transformations_config_flair(bands_yaml, config_model)
+modalities_trans= modalities_transformations_config(configs_dataset,name_config=configs_dataset)
+test_conf= transformations_config(bands_yaml,config_model)
 
 
  
@@ -110,15 +111,14 @@ if not checkpoint_files:
 checkpoint_path = sorted(checkpoint_files, key=os.path.getmtime)[-1]
 print(f"Loading best checkpoint: {checkpoint_path}")
 
-model = Model.load_from_checkpoint(checkpoint_path, config=config_model, wand=wand, name=xp_name, labels=labels,transform=trans_config)
+model = Model(config_model,wand=wand, name=xp_name,transform=test_conf)
 
-
-data_module = CustomPlantedDataModule(
-    "./data/custom_planted/"+config_name_dataset,
-    config=config_model,
-    trans_config=trans_config,
-    batch_size=config_model['dataset']['batchsize'],
-)
+data_module=Tiny_BigEarthNetDataModule( f"./data/Tiny_BigEarthNet/{config_name_dataset}", 
+                                       batch_size=config_model["dataset"]["batchsize"], 
+                                       num_workers=4,
+                                       trans_modalities=modalities_trans,
+                                       trans_tokens=None,
+                                       model=config_model["encoder"])
 
 
 

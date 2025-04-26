@@ -55,10 +55,13 @@ torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision('medium')
 
 config_model = read_yaml("./training/configs/"+config_model)
-labels = load_json_to_dict("./data/labels.json")
+configs_dataset=f"./data/Tiny_BigEarthNet/configs_dataset_{config_name_dataset}.yaml"
 bands_yaml = "./data/bands_info/bands.yaml"
 
-trans_config = transformations_config_flair(bands_yaml, config_model)
+
+
+modalities_trans= modalities_transformations_config(configs_dataset,name_config=configs_dataset)
+test_conf= transformations_config(bands_yaml,config_model)
 
 wand = True
 wandb_logger = None
@@ -72,78 +75,68 @@ if wand:
         )
         wandb_logger = WandbLogger(project="PLANTED")
 
-model = Model(config_model, wand=wand, name=xp_name, labels=labels,transform=trans_config)
 
-data_module = CustomPlantedDataModule(
-    "./data/custom_planted/"+config_name_dataset,
-    config=config_model,
-    trans_config=trans_config,
-    batch_size=config_model['dataset']['batchsize'],
+checkpoint_dir = "./checkpoints"
+all_ckpt_files = [
+    os.path.join(checkpoint_dir, f)
+    for f in os.listdir(checkpoint_dir)
+    if f.endswith(".ckpt")
+]
+if not all_ckpt_files:
+    raise FileNotFoundError(f"No checkpoints found in {checkpoint_dir}")
+
+def latest_ckpt_for(prefix: str):
+    # filter to files that start with the prefix,
+    # then pick the most recently‐modified one
+    matches = [f for f in all_ckpt_files if os.path.basename(f).startswith(prefix)]
+    if not matches:
+        raise FileNotFoundError(f"No checkpoints matching {prefix}* in {checkpoint_dir}")
+    return max(matches, key=os.path.getmtime)
+
+# 1) Best model according to val_mod_train AP
+ckpt_train = latest_ckpt_for("best_model_val_mod_train")
+print("→ Testing on ckpt (val_mod_train):", ckpt_train)
+
+# 2) Best model according to val_mod_val AP
+ckpt_val = latest_ckpt_for("best_model_val_mod_val")
+print("→ Testing on ckpt (val_mod_val):", ckpt_val)
+
+# Instantiate your model and datamodule just once
+model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+data_module = Tiny_BigEarthNetDataModule(
+    f"./data/Tiny_BigEarthNet/{config_name_dataset}",
+    batch_size=config_model["dataset"]["batchsize"],
+    num_workers=4,
+    trans_modalities=modalities_trans,
+    trans_tokens=None,
+    model=config_model["encoder"],
 )
 
-
-# Callbacks
-checkpoint_callback = ModelCheckpoint(
-    dirpath="./checkpoints/",
-    filename="best_model-{epoch:02d}-{val_F1:.4f}",
-    monitor="val_F1",
-    mode="max",
-    save_top_k=1,
-    verbose=True,
-)
-
-early_stop_callback = EarlyStopping(
-    monitor="val_loss",
-    min_delta=0.00,
-    patience=75,
-    verbose=False,
-    mode="max"
-)
-
-
-accumulator = GradientAccumulationScheduler(scheduling={0: 20})
-
-# Trainer
-trainer = Trainer(
+# One Trainer is enough; we'll just call .test twice
+test_trainer = Trainer(
     use_distributed_sampler=False,
-    strategy="ddp",
-    devices=-1,
-    max_epochs=config_model["trainer"]["epochs"],
-    logger=wandb_logger,
-    log_every_n_steps=256,
     accelerator="gpu",
-    callbacks=[early_stop_callback, checkpoint_callback,accumulator],
+    devices=-1,
+    logger=wandb_logger,
     default_root_dir="./checkpoints/",
-    val_check_interval=0.3,
-    precision="bf16-mixed"
 )
 
+# Test the “train‐best” checkpoint
+test_results_train = test_trainer.test(
+    model=model,
+    datamodule=data_module,
+    ckpt_path=ckpt_train,
+    verbose=True
+)
 
-# Fit the model
-trainer.fit(model, datamodule=data_module)
+# Test the “val‐best” checkpoint
+# (Lightning will re-load the model from the new checkpoint)
+test_results_val = test_trainer.test(
+    model=model,
+    datamodule=data_module,
+    ckpt_path=ckpt_val,
+    verbose=True
+)
 
-
-
-
-
-
-# ... after training completes, within your "if wand" block:
-if wand and os.environ.get("LOCAL_RANK", "0") == "0":
-    run_id = wandb.run.id
-    print("WANDB_RUN_ID:", run_id)
-    
-    # Create the directory for storing wandb run IDs if it doesn't exist
-    runs_dir = "training/wandb_runs"
-    os.makedirs(runs_dir, exist_ok=True)
-    
-    
-    # Save the run ID to a file inside wandb_runs
-    run_file = os.path.join(runs_dir, xp_name+".txt")
-    with open(run_file, "w") as f:
-        f.write(run_id)
-
-
-
-
-
-
+print("Results for best_model_val_mod_train:", test_results_train)
+print("Results for best_model_val_mod_val:  ", test_results_val)
