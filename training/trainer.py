@@ -224,6 +224,7 @@ class Model(pl.LightningModule):
                     "val_mod_train_loss": val_mod_train_loss, 
                     "val_mod_train_ap": val_mod_train_ap}
         
+        
     
         
     def on_test_epoch_start(self):
