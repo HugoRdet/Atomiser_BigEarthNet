@@ -92,7 +92,7 @@ class Atomiser(pl.LightningModule):
         get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
 
         get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff))
-
+        self.layers = nn.ModuleList([])
         for i in range(depth):
             should_cache = i > 0 and weight_tie_layers
             cache_args = {'_cache': should_cache}
