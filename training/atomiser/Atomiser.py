@@ -84,74 +84,42 @@ class Atomiser(pl.LightningModule):
         #self.VH = nn.Parameter(torch.empty(dw))
         #nn.init.trunc_normal_(self.VV, std=0.02, a=-2., b=2.)
         #nn.init.trunc_normal_(self.VH, std=0.02, a=-2., b=2.)
-
-        # Latents
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
-        nn.init.trunc_normal_(self.latents, std=0.02, a=-2., b=2.)
 
-        get_cross_attn = cache_fn(lambda: PreNorm(
-            latent_dim,
-            CrossAttention(
-                query_dim   = latent_dim,
-                context_dim = input_dim,
-                heads       = cross_heads,
-                dim_head    = cross_dim_head,
-                dropout     = attn_dropout,
-                use_flash   = True
-            ),
-            context_dim = input_dim
-        ))
+        get_cross_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dim, heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dim)
+        get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
+        get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
+        get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
 
-        get_cross_ff = cache_fn(lambda: PreNorm(
-            latent_dim,
-            FeedForward(latent_dim, dropout=ff_dropout)
-        ))
+        get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff))
 
-        get_latent_attn = cache_fn(lambda: PreNorm(
-            latent_dim,
-            SelfAttention(
-                dim        = latent_dim,
-                heads      = latent_heads,
-                dim_head   = latent_dim_head,
-                dropout    = attn_dropout,
-                use_flash  = True
-            )
-        ))
-
-        get_latent_ff = cache_fn(lambda: PreNorm(
-            latent_dim,
-            FeedForward(latent_dim, dropout=ff_dropout)
-        ))
-        #d
-        # Build cross/self-attn layers
-        self.layers = nn.ModuleList()
         for i in range(depth):
-            cache_args = {'_cache': (i>0 and weight_tie_layers)}
-            # cross
-            cross_attn = get_cross_attn(**cache_args)
-            cross_ff   = get_cross_ff(**cache_args)
-            # self
-            self_attns = nn.ModuleList()
-            
-            for j in range(self_per_cross_attn):
+            should_cache = i > 0 and weight_tie_layers
+            cache_args = {'_cache': should_cache}
+
+            self_attns = nn.ModuleList([])
+
+            for block_ind in range(self_per_cross_attn):
                 self_attns.append(nn.ModuleList([
-                    get_latent_attn(**cache_args, key = j),
-                    get_latent_ff(**cache_args, key = j)
+                    get_latent_attn(**cache_args, key = block_ind),
+                    get_latent_ff(**cache_args, key = block_ind)
                 ]))
 
-            self.layers.append(nn.ModuleList([cross_attn, cross_ff, self_attns]))
+            self.layers.append(nn.ModuleList([
+                get_cross_attn(**cache_args),
+                get_cross_ff(**cache_args),
+                self_attns
+            ]))
+
+        self.lattent_attn_layers = nn.ModuleList([])
 
   
 
-        # Classifier
-        if final_classifier_head:
-            self.to_logits = nn.Sequential(
-                LatentAttentionPooling(latent_dim, heads=latent_heads, dim_head=latent_dim_head, dropout=attn_dropout),
-                nn.LayerNorm(latent_dim),
-                nn.Linear(latent_dim, num_classes)
-            )
-        else:
-            self.to_logits = nn.Identity()
+        self.to_logits = nn.Sequential(
+            Reduce('b n d -> b d', 'mean'),
+            nn.LayerNorm(latent_dim),
+            nn.Linear(latent_dim, num_classes)
+        ) if final_classifier_head else nn.Identity()
        
 
 
