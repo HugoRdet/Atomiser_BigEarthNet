@@ -2,7 +2,7 @@ from .utils import*
 from .nn_comp import*
 from .encoding import*
 import matplotlib.pyplot as plt
-
+import pytorch_lightning as pl
 
 import torch
 from torch import nn, einsum
