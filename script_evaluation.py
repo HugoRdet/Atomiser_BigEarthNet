@@ -131,10 +131,9 @@ data_module = Tiny_BigEarthNetDataModule(
 test_trainer = Trainer(
     use_distributed_sampler=False,
     accelerator="gpu",
-    devices=[1],
+    devices=-1,
     logger=wandb_logger,
     default_root_dir="./checkpoints/",
-    limit_test_batches=3,
 )
 
 # Test the “train‐best” checkpoint
