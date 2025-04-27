@@ -145,6 +145,14 @@ test_results_train = test_trainer.test(
     verbose=True
 )
 
+# 1) Record which checkpoint you just tested
+wandb_logger.experiment.summary["train_best_ckpt"] = os.path.basename(ckpt_train)
+# 2) Lift all of its test metrics into the summary with a prefix
+for metric_name, val in test_results_train[0].items():
+    wandb_logger.experiment.summary[f"train_best_{metric_name}"] = val
+
+
+
 # Test the “val‐best” checkpoint
 # (Lightning will re-load the model from the new checkpoint)
 test_results_val = test_trainer.test(
@@ -153,6 +161,12 @@ test_results_val = test_trainer.test(
     ckpt_path=ckpt_val,
     verbose=True
 )
+
+# 1) Record which ckpt
+wandb_logger.experiment.summary["val_best_ckpt"] = os.path.basename(ckpt_val)
+# 2) Push its test metrics
+for metric_name, val in test_results_val[0].items():
+    wandb_logger.experiment.summary[f"val_best_{metric_name}"] = val
 
 print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
