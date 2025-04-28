@@ -117,7 +117,6 @@ accumulator = GradientAccumulationScheduler(scheduling={0: 64})
 
 # Trainer
 trainer = Trainer(
-    use_distributed_sampler=False,
     strategy="ddp",
     devices=[0], #
     max_epochs=config_model["trainer"]["epochs"],
