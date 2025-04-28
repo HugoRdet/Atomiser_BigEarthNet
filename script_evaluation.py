@@ -70,7 +70,7 @@ config_model = read_yaml("./training/configs/"+config_model)
 configs_dataset=f"./data/Tiny_BigEarthNet/configs_dataset_{config_name_dataset}.yaml"
 bands_yaml = "./data/bands_info/bands.yaml"
 
-modalities_trans= modalities_transformations_config(configs_dataset,name_config=configs_dataset)
+modalities_trans= modalities_transformations_config(configs_dataset,name_config=config_name_dataset)
 test_conf= transformations_config(bands_yaml,config_model)
 
 
