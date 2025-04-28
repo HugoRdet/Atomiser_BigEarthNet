@@ -171,6 +171,7 @@ class modalities_transformations_config:
             folder_path=save_path=f"{self.path}/{self.name_config}"
             ensure_folder_exists(folder_path)
             folder_path=save_path=f"{self.path}/{self.name_config}/{modality_folder}/"
+            ensure_folder_exists(folder_path)
         else:
             ensure_folder_exists(folder_path)
 

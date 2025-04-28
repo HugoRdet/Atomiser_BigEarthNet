@@ -300,7 +300,7 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
     cpt_train = 0
 
     # 4) Iterate through your dictionary of IDs, fetch images, and store them
-    for idx in dico_idxs.keys():
+    for idx in tqdm(dico_idxs.keys()):
         l_samples = dico_idxs[idx]
 
         for elem_id in l_samples:
@@ -317,9 +317,9 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
             # normalized_value = (value - mean[channel]) / std[channel]
             img = (img - means) / stds
 
-            shape_train=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="train")
-            shape_validation=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="validation")
-            shape_test=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="test")
+            #shape_train=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="train")
+            #shape_validation=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="validation")
+            #shape_test=get_img_shape_trans(img,elem_id,trans_config,trans_tokens,mode=mode,modality_mode="test")
 
             
             
@@ -328,9 +328,9 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
             db.create_dataset(f'image_{cpt_train}', data=img.numpy().astype(np.float16))
             db.create_dataset(f'label_{cpt_train}', data=label.numpy().astype(int))
             db.create_dataset(f'id_{cpt_train}', data=int(elem_id))
-            db.create_dataset(f'shape_train_{cpt_train}', data=int(shape_train))
-            db.create_dataset(f'shape_test_{cpt_train}', data=int(shape_test))
-            db.create_dataset(f'shape_validation_{cpt_train}', data=int(shape_validation))
+            db.create_dataset(f'shape_train_{cpt_train}', data=int(0))
+            db.create_dataset(f'shape_test_{cpt_train}', data=int(0))
+            db.create_dataset(f'shape_validation_{cpt_train}', data=int(0))
 
             
 
@@ -408,7 +408,7 @@ class Tiny_BigEarthNet(Dataset):
 
         image = torch.tensor(f[f'image_{idx}'][:]) #14;120;120
         image =image[2:,:,:]
-        attention_mask=torch.ones(image.shape)
+        attention_mask=torch.zeros(image.shape)
         label = torch.tensor(f[f'label_{idx}'][:])
         id_img = int(f[f'id_{idx}'][()])
 
