@@ -119,7 +119,7 @@ accumulator = GradientAccumulationScheduler(scheduling={0: 64})
 trainer = Trainer(
     use_distributed_sampler=False,
     strategy="ddp",
-    devices=[0],
+    devices=[0], #
     max_epochs=config_model["trainer"]["epochs"],
     logger=wandb_logger,
     log_every_n_steps=16,
