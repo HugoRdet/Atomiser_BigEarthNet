@@ -321,7 +321,7 @@ class Model(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
 
         accumulate_grad_batches = 64#self.config["trainer"].get("accumulate_grad_batches", 1)
-        batches_per_epoch = len(self.train_dataloader())
+        batches_per_epoch = self.trainer.estimated_stepping_batches/self.config["trainer"]["epochs"]
         steps_per_epoch = batches_per_epoch // accumulate_grad_batches
 
         total_steps = self.config["trainer"]["epochs"] * steps_per_epoch
