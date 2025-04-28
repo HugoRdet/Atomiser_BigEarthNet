@@ -408,11 +408,15 @@ class Tiny_BigEarthNet(Dataset):
         label = torch.tensor(f[f'label_{idx}'][:])
         id_img = int(f[f'id_{idx}'][()])
 
+
+
+        image,attention_mask=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode)
+
         
 
         if self.transform_tokens!=None:
 
-            image,attention_mask=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode)
+            
             
             image,attention_mask=self.transform_tokens.process_data(image.unsqueeze(0),attention_mask.unsqueeze(0))
             image=image.squeeze(0)
