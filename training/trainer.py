@@ -133,7 +133,6 @@ class Model(pl.LightningModule):
         if "Atomiser" in self.config["encoder"]:
             return self.encoder(x,mask,training=training)
         else:
-            x = x[:, 2:, :, :]
             return self.encoder(x)
             
     def training_step(self, batch, batch_idx):

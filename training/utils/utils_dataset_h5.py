@@ -397,10 +397,6 @@ class Tiny_BigEarthNet(Dataset):
         label=None
         id_img=None
 
-        if self.h5 is None:
-            self.h5 = h5py.File(self.file_path, 'r')  # 👈 Open file if not yet opened
-
-
 
 
         f = self.h5
@@ -633,7 +629,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             return DataLoader(
                 self.train_dataset,
                 num_workers=self.num_workers,
-                #worker_init_fn=_init_worker,
+                worker_init_fn=_init_worker,
                 pin_memory=True,
                 batch_size=self.batch_size,
                 prefetch_factor=8,  # increased prefetch for smoother transfers
@@ -663,7 +659,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             return DataLoader(
                 self.val_dataset,
                 num_workers=self.num_workers,
-                #worker_init_fn=_init_worker,
+                worker_init_fn=_init_worker,
                 batch_sampler=batch_sampler,
                 #pin_memory=True,
                 #prefetch_factor=8,  # increased prefetch for smoother transfers
@@ -676,7 +672,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             val_mod_val=DataLoader(
                 self.val_dataset,
                 num_workers=self.num_workers,
-                #worker_init_fn=_init_worker,
+                worker_init_fn=_init_worker,
                 #batch_sampler=batch_sampler,
                 pin_memory=True,
                 batch_size=self.batch_size,
@@ -687,7 +683,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             val_mod_train=DataLoader(
                 self.val_dataset_mode_train,
                 num_workers=self.num_workers,
-                #worker_init_fn=_init_worker,
+                worker_init_fn=_init_worker,
                 #batch_sampler=batch_sampler,
                 pin_memory=True,
                 batch_size=self.batch_size,
@@ -719,7 +715,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             return DataLoader(
                 self.test_dataset,
                 num_workers=self.num_workers,
-                #worker_init_fn=_init_worker,
+                worker_init_fn=_init_worker,
                 batch_sampler=batch_sampler,
                 #pin_memory=True,
                 #prefetch_factor=4,  # increased prefetch for smoother transfers
@@ -732,7 +728,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
                 self.test_dataset,
                 num_workers=self.num_workers,
                 batch_size=self.batch_size,
-                #worker_init_fn=_init_worker,
+                worker_init_fn=_init_worker,
                 #batch_sampler=batch_sampler,
                 pin_memory=True,
                 prefetch_factor=4,  # increased prefetch for smoother transfers
