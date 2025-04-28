@@ -53,8 +53,8 @@ def change_size(img,mask,coordinates):
     padding_size=int((orig_size-(x_max-x_min))/2.0)
     
     padded_img[:,padding_size:-padding_size,padding_size:-padding_size]=new_img
-    mask[:,:,:]=1.0
-    mask[:,padding_size:-padding_size,padding_size:-padding_size]=0.0
+    mask[:,:,:]=0.0
+    mask[:,padding_size:-padding_size,padding_size:-padding_size]=1.0
     return padded_img,mask
 
 def random_value_from_range(min_value, max_value, step):
@@ -97,8 +97,8 @@ def remove_bands(img,mask, bands_ids):
     # img shape: H x W x C
     
 
-    img[bands_ids,:, :] = 1.0
-    mask[bands_ids,:,:] = 1.0
+    img[bands_ids,:, :] = 0.0
+    mask[bands_ids,:,:] = 0.0
 
     return img,mask
 
