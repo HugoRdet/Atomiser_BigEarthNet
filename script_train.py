@@ -113,20 +113,20 @@ checkpoint_callback_val_mod_train = ModelCheckpoint(
 #)
 
 
-accumulator = GradientAccumulationScheduler(scheduling={0: 256})
+accumulator = GradientAccumulationScheduler(scheduling={0: 64})
 
 # Trainer
 trainer = Trainer(
     use_distributed_sampler=False,
     strategy="ddp",
-    devices=[1],
+    devices=-1,
     max_epochs=config_model["trainer"]["epochs"],
     logger=wandb_logger,
-    log_every_n_steps=256,
+    log_every_n_steps=16,
     accelerator="gpu",
     callbacks=[checkpoint_callback_val_mod_val,checkpoint_callback_val_mod_train,accumulator],
     default_root_dir="./checkpoints/",
-    #val_check_interval=0.3,
+    val_check_interval=0.3,
     precision="bf16-mixed"
 )
 
