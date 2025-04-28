@@ -408,7 +408,7 @@ class Tiny_BigEarthNet(Dataset):
 
         image = torch.tensor(f[f'image_{idx}'][:]) #14;120;120
         image =image[2:,:,:]
-        attention_mask=torch.zeros(image.shape)
+        attention_mask=torch.ones(image.shape)
         label = torch.tensor(f[f'label_{idx}'][:])
         id_img = int(f[f'id_{idx}'][()])
 
