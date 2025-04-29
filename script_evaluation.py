@@ -117,7 +117,8 @@ ckpt_val = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_val")
 print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 
 # Instantiate your model and datamodule just once
-model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+#model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+model=None
 data_module = Tiny_BigEarthNetDataModule(
     f"./data/Tiny_BigEarthNet/{config_name_dataset}",
     batch_size=config_model["dataset"]["batchsize"],
