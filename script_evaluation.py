@@ -81,7 +81,7 @@ if wand:
     if os.environ.get("LOCAL_RANK", "0") == "0":
         import wandb
         wandb.init(
-            id=run_id,            # Pass the run ID from the training run
+            #id=run_id,            # Pass the run ID from the training run
             resume='allow',       # Allow resuming the existing run
             name=config_model['encoder'],
             project="Atomizer_BigEarthNet",
