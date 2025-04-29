@@ -91,11 +91,39 @@ class Perceiver(nn.Module):
         #https://pytorch.org/docs/stable/generated/torch.nn.parameter.Parameter.html
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
 
-        get_cross_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dim, heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dim)
-        get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
-        get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
-        get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
+        get_cross_attn = cache_fn(lambda: PreNorm(
+            latent_dim,
+            CrossAttention(
+                query_dim   = latent_dim,
+                context_dim = input_dim,
+                heads       = cross_heads,
+                dim_head    = cross_dim_head,
+                dropout     = attn_dropout,
+                use_flash   = True
+            ),
+            context_dim = input_dim
+        ))
 
+        get_cross_ff = cache_fn(lambda: PreNorm(
+            latent_dim,
+            FeedForward(latent_dim, dropout=ff_dropout)
+        ))
+
+        get_latent_attn = cache_fn(lambda: PreNorm(
+            latent_dim,
+            SelfAttention(
+                dim        = latent_dim,
+                heads      = latent_heads,
+                dim_head   = latent_dim_head,
+                dropout    = attn_dropout,
+                use_flash  = True
+            )
+        ))
+
+        get_latent_ff = cache_fn(lambda: PreNorm(
+            latent_dim,
+            FeedForward(latent_dim, dropout=ff_dropout)
+        ))
         get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff))
 
         self.layers = nn.ModuleList([])
