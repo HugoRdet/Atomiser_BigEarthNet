@@ -176,7 +176,8 @@ print("Results for best_model_val_mod_val:  ", test_results_val)
 test_trainer = Trainer(
     use_distributed_sampler=False,
     accelerator="gpu",
-    devices=-1,
+    devices=[0],
+    precision="16-mixed",
     logger=wandb_logger,
     default_root_dir="./checkpoints/",
 )
