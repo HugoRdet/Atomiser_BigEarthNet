@@ -137,7 +137,7 @@ test_trainer = Trainer(
     accelerator="gpu",
     devices=-1,
     logger=wandb_logger,
-    precision="32",
+    precision="16-mixed",
     limit_test_batches=3,
     #default_root_dir="./checkpoints/",
 )
@@ -168,7 +168,7 @@ for metric_name, val in test_results_train[0].items():
 model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
 ckpt = torch.load(ckpt_val, map_location="cuda")
 model.load_state_dict(ckpt["state_dict"], strict=True)
-model = model.float()
+model = model.half()
 
 # Test the “val‐best” checkpoint
 # (Lightning will re-load the model from the new checkpoint)
@@ -194,7 +194,7 @@ test_trainer = Trainer(
     use_distributed_sampler=False,
     accelerator="gpu",
     devices=[0],
-    precision="32",
+    precision="16-mixed",
     logger=wandb_logger,
     limit_test_batches=3,
 )
@@ -220,7 +220,7 @@ for metric_name, val in test_results_train[0].items():
 model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
 ckpt = torch.load(ckpt_val, map_location="cuda")
 model.load_state_dict(ckpt["state_dict"], strict=True)
-model = model.float()
+model = model.half()
 
 # Test the “val‐best” checkpoint
 # (Lightning will re-load the model from the new checkpoint)
