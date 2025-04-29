@@ -137,7 +137,8 @@ test_trainer = Trainer(
     accelerator="gpu",
     devices=-1,
     logger=wandb_logger,
-    default_root_dir="./checkpoints/",
+    precision="16-mixed",
+    #default_root_dir="./checkpoints/",
 )
 
 
@@ -147,7 +148,7 @@ test_results_train = test_trainer.test(
     datamodule=data_module,
     verbose=True,
     ckpt_path=None,
-    precision="16-mixed",
+    
 )
 
 # 1) Record which checkpoint you just tested
