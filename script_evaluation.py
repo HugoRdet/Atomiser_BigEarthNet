@@ -138,6 +138,7 @@ test_trainer = Trainer(
     devices=-1,
     logger=wandb_logger,
     precision="32",
+    limit_test_batches=3,
     #default_root_dir="./checkpoints/",
 )
 
@@ -195,6 +196,7 @@ test_trainer = Trainer(
     devices=[0],
     precision="32",
     logger=wandb_logger,
+    limit_test_batches=3,
 )
 
 data_module.test_dataset.set_modality_mode("validation")
