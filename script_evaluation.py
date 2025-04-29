@@ -145,7 +145,6 @@ test_trainer = Trainer(
 test_results_train = test_trainer.test(
     model=model,
     datamodule=data_module,
-    ckpt_path=ckpt_train,
     verbose=True
 )
 
