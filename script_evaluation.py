@@ -120,7 +120,7 @@ print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
 ckpt = torch.load(ckpt_train, map_location="cuda")
 model.load_state_dict(ckpt["state_dict"], strict=True)
-model = model.half()
+model = model.float()
 
 data_module = Tiny_BigEarthNetDataModule(
     f"./data/Tiny_BigEarthNet/{config_name_dataset}",
@@ -137,7 +137,7 @@ test_trainer = Trainer(
     accelerator="gpu",
     devices=-1,
     logger=wandb_logger,
-    precision="16-mixed",
+    precision="32",
     #default_root_dir="./checkpoints/",
 )
 
@@ -183,7 +183,7 @@ test_trainer = Trainer(
     use_distributed_sampler=False,
     accelerator="gpu",
     devices=[0],
-    precision="16-mixed",
+    precision="32",
     logger=wandb_logger,
 )
 
