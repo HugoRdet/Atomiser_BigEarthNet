@@ -141,6 +141,11 @@ test_trainer = Trainer(
     #default_root_dir="./checkpoints/",
 )
 
+# Instantiate your model and datamodule just once
+model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+ckpt = torch.load(ckpt_train, map_location="cuda")
+model.load_state_dict(ckpt["state_dict"], strict=True)
+model = model.float()
 
 # Test the “train‐best” checkpoint
 test_results_train = test_trainer.test(
@@ -158,6 +163,11 @@ for metric_name, val in test_results_train[0].items():
     wandb_logger.experiment.summary[f"mod_test_train_best_{metric_name}"] = val
 
 
+# Instantiate your model and datamodule just once
+model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+ckpt = torch.load(ckpt_val, map_location="cuda")
+model.load_state_dict(ckpt["state_dict"], strict=True)
+model = model.float()
 
 # Test the “val‐best” checkpoint
 # (Lightning will re-load the model from the new checkpoint)
@@ -204,6 +214,11 @@ for metric_name, val in test_results_train[0].items():
     wandb_logger.experiment.summary[f"mod_val_train_best_{metric_name}"] = val
 
 
+# Instantiate your model and datamodule just once
+model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+ckpt = torch.load(ckpt_val, map_location="cuda")
+model.load_state_dict(ckpt["state_dict"], strict=True)
+model = model.float()
 
 # Test the “val‐best” checkpoint
 # (Lightning will re-load the model from the new checkpoint)
