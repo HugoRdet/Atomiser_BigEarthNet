@@ -82,12 +82,14 @@ if wand:
         import wandb
         wandb.init(
             #id=run_id,            # Pass the run ID from the training run
-            resume='allow',       # Allow resuming the existing run
+            #resume='allow',       # Allow resuming the existing run
             name=config_model['encoder'],
             project="Atomizer_BigEarthNet",
-            config=config_model
+            config=config_model,
+            tags=["evaluation", xp_name, config_model['encoder']]
         )
-        wandb_logger = WandbLogger(project="Atomizer_BigEarthNet")
+        #wandb_logger = WandbLogger(project="Atomizer_BigEarthNet")
+        wandb_logger = WandbLogger(project="Atomizer_BigEarthNet", experiment=run)
 
 # … everything up through your wandb / logger setup is unchanged …
 
