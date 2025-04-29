@@ -109,11 +109,11 @@ def latest_ckpt_for(prefix: str):
     return max(matches, key=os.path.getmtime)
 
 # 1) Best model according to val_mod_train AP
-ckpt_train = latest_ckpt_for("best_model_val_mod_train")
+ckpt_train = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_train")
 print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 
 # 2) Best model according to val_mod_val AP
-ckpt_val = latest_ckpt_for("best_model_val_mod_val")
+ckpt_val = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_val")
 print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 
 # Instantiate your model and datamodule just once

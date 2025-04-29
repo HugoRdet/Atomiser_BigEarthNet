@@ -3,6 +3,7 @@ from training.atomiser import *
 from training.utils import *
 from training.losses import *
 from training.VIT import *
+from training.ScaleMae import*
 from training.ResNet import *
 from collections import defaultdict
 from training import *
@@ -25,6 +26,7 @@ import torchmetrics
 import warnings
 import wandb
 from transformers import get_cosine_schedule_with_warmup
+
 
 #BigEarthNet...
 warnings.filterwarnings("ignore", message="No positive samples found in target, recall is undefined. Setting recall to one for all thresholds.")
@@ -125,6 +127,12 @@ class Model(pl.LightningModule):
                 final_classifier_head=config["Atomiser"]["final_classifier_head"],
                 masking=config["Atomiser"]["masking"]
             )
+        
+        if config["encoder"] == "ScaleMAE":
+            self.encoder=CustomScaleMAE()
+            
+        
+
 
         self.loss = nn.BCEWithLogitsLoss()
         self.lr = float(config["trainer"]["lr"])
@@ -133,6 +141,7 @@ class Model(pl.LightningModule):
         if "Atomiser" in self.config["encoder"]:
             return self.encoder(x,mask,training=training)
         else:
+            print(x.shape)
             return self.encoder(x)
             
     def training_step(self, batch, batch_idx):
