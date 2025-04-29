@@ -17,7 +17,7 @@ class CustomScaleMAE(pl.LightningModule):
                 in_chans=12
             )
         self.to_logits = nn.Sequential(
-                nn.Linear(768,num_classes)
+                nn.Linear(1000,num_classes)
             )
         
     def forward(self,x):
