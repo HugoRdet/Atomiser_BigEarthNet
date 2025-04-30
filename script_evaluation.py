@@ -100,7 +100,7 @@ def setup_wandb(config_model, xp_name, run_id=None):
             import wandb
             # Initialize wandb with more robust settings
             run = wandb.init(
-                id=run_id if run_id else None,
+                id=None #run_id if run_id else None,
                 resume="allow" if run_id else None,
                 name=config_model['encoder'],
                 project="Atomizer_BigEarthNet",
