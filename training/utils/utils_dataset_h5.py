@@ -349,7 +349,7 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
 
 
 class Tiny_BigEarthNet(Dataset):
-    def __init__(self, file_path, transform,transform_tokens=None,model="None",mode="train"):
+    def __init__(self, file_path, transform,transform_tokens=None,model="None",mode="train",modality_mode=None):
         self.file_path = file_path
         self.num_samples = None
         self.mode=mode
@@ -359,9 +359,11 @@ class Tiny_BigEarthNet(Dataset):
         self.model=model
         self.transform_tokens=transform_tokens
 
-        
-        self.modality_mode=mode
-        self.original_mode=mode
+        if modality_mode==None:
+            self.modality_mode=mode
+        else:
+            self.modality_mode=modality_mode
+            self.original_mode=modality_mode
 
         self.h5=None
 
@@ -563,8 +565,6 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             mode="train",
         )
 
-        if self.modality!=None:
-            self.train_dataset.modality_mode=self.modality
             
         self.val_dataset = Tiny_BigEarthNet(
             self.val_file,
@@ -593,6 +593,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             transform_tokens=self.trans_tokens,
             model=self.model,
             mode="test",
+            modality_mode=self.modality
         )
 
         if self.modality!=None:

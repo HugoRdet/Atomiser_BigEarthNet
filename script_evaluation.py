@@ -131,6 +131,7 @@ data_module = Tiny_BigEarthNetDataModule(
     trans_modalities=modalities_trans,
     trans_tokens=None,
     model=config_model["encoder"],
+    modality="test"
 )
 
 # One Trainer is enough; we'll just call .test twice
@@ -180,6 +181,16 @@ test_results_val = test_trainer.test(
 
 print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
+
+data_module = Tiny_BigEarthNetDataModule(
+    f"./data/Tiny_BigEarthNet/{config_name_dataset}",
+    batch_size=config_model["dataset"]["batchsize"],
+    num_workers=4,
+    trans_modalities=modalities_trans,
+    trans_tokens=None,
+    model=config_model["encoder"],
+    modality="validation"
+)
 
 #=====================
 # One Trainer is enough; we'll just call .test twice
