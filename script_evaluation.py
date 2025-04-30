@@ -137,7 +137,7 @@ data_module = Tiny_BigEarthNetDataModule(
 # One Trainer is enough; we'll just call .test twice
 test_trainer = Trainer(
     accelerator="gpu",
-    devices=[0],
+    devices=[1],
     logger=wandb_logger,
     precision="16-mixed",
     #default_root_dir="./checkpoints/",
@@ -196,12 +196,11 @@ data_module = Tiny_BigEarthNetDataModule(
 # One Trainer is enough; we'll just call .test twice
 test_trainer = Trainer(
     accelerator="gpu",
-    devices=[0],
+    devices=[1],
     precision="16-mixed",
     logger=wandb_logger,
 )
 
-data_module.test_dataset.set_modality_mode("validation")
 model.comment_log="train_best mod_val "
 # Test the “train‐best” checkpoint
 test_results_train = test_trainer.test(
