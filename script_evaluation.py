@@ -231,11 +231,11 @@ model = load_checkpoint(model, ckpt_train)
 model = model.float()
 model.comment_log="train_best mod_test "
 
-test_results_train = run_test(
-    test_trainer, 
-    model, 
-    data_module
-)
+#test_results_train = run_test(
+#    test_trainer, 
+#    model, 
+#    data_module
+#)
 
 # Test with the "val‐best" checkpoint
 print("\n===== Testing model from val-best checkpoint on test data =====")
@@ -250,7 +250,7 @@ test_results_val = run_test(
     data_module
 )
 
-print("Results for best_model_val_mod_train:", test_results_train)
+#print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
 
 # Now test on validation data
