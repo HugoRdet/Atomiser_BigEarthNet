@@ -29,6 +29,36 @@ import random
 
 import argparse
 
+
+def load_checkpoint(model, checkpoint_path):
+    ckpt = torch.load(checkpoint_path, map_location="cuda")
+    
+    # Get the state dictionary
+    state_dict = ckpt["state_dict"]
+    
+    # Create a new state dict that only contains keys that exist in the model
+    model_state_dict = model.state_dict()
+    
+    # Filter out unexpected keys
+    filtered_state_dict = {k: v for k, v in state_dict.items() if k in model_state_dict}
+    
+    # Load the filtered state dict
+    missing_keys = model.load_state_dict(filtered_state_dict, strict=False)
+    
+    # Print information about what was loaded and what was missed
+    unexpected_keys = set(state_dict.keys()) - set(model_state_dict.keys())
+    
+    print(f"Loaded {len(filtered_state_dict)} parameters")
+    print(f"Missing {len(missing_keys.missing_keys)} parameters")
+    print(f"Ignored {len(unexpected_keys)} unexpected parameters")
+    
+    if len(unexpected_keys) > 0:
+        print("First few unexpected keys:", list(unexpected_keys)[:5])
+    if len(missing_keys.missing_keys) > 0:
+        print("First few missing keys:", missing_keys.missing_keys[:5])
+    
+    return model
+
 # Create the parser
 parser = argparse.ArgumentParser(description="Evaluation script")
 
@@ -118,11 +148,6 @@ print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 ckpt_val = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_val")
 print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 
-# Instantiate your model and datamodule just once
-model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
-ckpt = torch.load(ckpt_train, map_location="cuda")
-model.load_state_dict(ckpt["state_dict"], strict=True)
-model = model.float()
 
 data_module = Tiny_BigEarthNetDataModule(
     f"./data/Tiny_BigEarthNet/{config_name_dataset}",
@@ -145,8 +170,7 @@ test_trainer = Trainer(
 
 # Instantiate your model and datamodule just once
 model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
-ckpt = torch.load(ckpt_train, map_location="cuda")
-model.load_state_dict(ckpt["state_dict"], strict=True)
+model = load_checkpoint(model, ckpt_train)
 model = model.float()
 model.comment_log="train_best mod_test "
 
@@ -164,8 +188,7 @@ test_results_train = test_trainer.test(
 
 # Instantiate your model and datamodule just once
 model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
-ckpt = torch.load(ckpt_val, map_location="cuda")
-model.load_state_dict(ckpt["state_dict"], strict=True)
+model = load_checkpoint(model, ckpt_val)
 model = model.half()
 model.comment_log="val_best mod_test "
 # Test the “val‐best” checkpoint
@@ -181,6 +204,12 @@ test_results_val = test_trainer.test(
 
 print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
+
+# Instantiate your model and datamodule just once
+model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+model = load_checkpoint(model, ckpt_train)
+model = model.half()
+model.comment_log="val_best mod_test "
 
 data_module = Tiny_BigEarthNetDataModule(
     f"./data/Tiny_BigEarthNet/{config_name_dataset}",
@@ -215,8 +244,7 @@ test_results_train = test_trainer.test(
 
 # Instantiate your model and datamodule just once
 model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
-ckpt = torch.load(ckpt_val, map_location="cuda")
-model.load_state_dict(ckpt["state_dict"], strict=True)
+model = load_checkpoint(model, ckpt_val)
 model = model.half()
 model.comment_log="val_best mod_val "
 # Test the “val‐best” checkpoint
