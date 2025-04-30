@@ -175,6 +175,7 @@ class Perceiver(pl.LightningModule):
         mask = None,
         return_embeddings = False
     ):
+        data=rearrange(data,"b c h w -> b h w c")
         b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
         assert len(axis) == self.input_axis, 'input data must have the right number of axis'
 
