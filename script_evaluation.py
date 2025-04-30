@@ -29,7 +29,37 @@ import random
 
 import argparse
 
+# Create the parser
+parser = argparse.ArgumentParser(description="Evaluation script")
 
+# Add the --run_id argument
+parser.add_argument("--run_id", type=str, required=True, help="WandB run id from training")
+
+# Add the --run_id argument
+parser.add_argument("--xp_name", type=str, required=True, help="Experiment name")
+
+# Add the --run_id argument
+parser.add_argument("--config_model", type=str, required=True, help="Model config yaml file")
+
+# Add the --run_id argument
+parser.add_argument("--dataset_name", type=str, required=True, help="Name of the dataset used")
+
+# Add option to disable wandb
+parser.add_argument("--no_wandb", action="store_true", help="Disable W&B logging")
+
+# Parse the arguments
+args = parser.parse_args()
+
+# Access the run id
+run_id = args.run_id
+xp_name=args.xp_name
+config_model = args.config_model
+config_name_dataset = args.dataset_name
+use_wandb = not args.no_wandb
+
+print("Using WandB Run ID:", run_id)
+
+# Helper function to handle loading of checkpoints with mismatched architectures
 def load_checkpoint(model, checkpoint_path):
     ckpt = torch.load(checkpoint_path, map_location="cuda")
     
@@ -59,37 +89,78 @@ def load_checkpoint(model, checkpoint_path):
     
     return model
 
-# Create the parser
-parser = argparse.ArgumentParser(description="Evaluation script")
+def setup_wandb(config_model, xp_name, run_id=None):
+    """Set up W&B logging with error handling and reconnection logic"""
+    if os.environ.get("LOCAL_RANK", "0") == "0":
+        try:
+            # Set environment variables that might help with connection issues
+            os.environ["WANDB_CONSOLE"] = "off"  # Disable console logging to reduce pipe traffic
+            os.environ["WANDB_RECONNECT_ATTEMPTS"] = "5"  # Attempt to reconnect up to 5 times
+            
+            import wandb
+            # Initialize wandb with more robust settings
+            run = wandb.init(
+                id=run_id if run_id else None,
+                resume="allow" if run_id else None,
+                name=config_model['encoder'],
+                project="Atomizer_BigEarthNet",
+                config=config_model,
+                tags=["evaluation", xp_name, config_model['encoder']],
+                settings=wandb.Settings(
+                    _service_wait=300,  # Wait up to 5 minutes for service to respond
+                    _file_stream_buffer=8192,  # Increase buffer size
+                )
+            )
+            
+            # Create logger with the run
+            logger = WandbLogger(project="Atomizer_BigEarthNet", experiment=run)
+            
+            print("W&B logging successfully initialized")
+            return logger
+            
+        except Exception as e:
+            print(f"Error initializing wandb: {e}")
+            print("Continuing without wandb logging")
+            return None
+    return None
 
+def run_with_wandb_fallback(callback, *args, **kwargs):
+    """Run a function with W&B logging, but gracefully fallback if W&B fails"""
+    try:
+        return callback(*args, **kwargs)
+    except Exception as e:
+        if "BrokenPipeError" in str(e) or "wandb" in str(e).lower():
+            print(f"W&B error occurred: {e}")
+            print("Disabling W&B and continuing with local logging only...")
+            
+            # Cleanup wandb
+            try:
+                import wandb
+                if wandb.run is not None:
+                    wandb.finish()
+            except:
+                pass
+            
+            # Set a global flag to disable wandb
+            global use_wandb
+            use_wandb = False
+            
+            # Re-run the callback with wandb disabled
+            kwargs['logger'] = None
+            return callback(*args, **kwargs)
+        else:
+            # If it's not a wandb error, re-raise it
+            raise
 
-
-
-# Add the --run_id argument
-parser.add_argument("--run_id", type=str, required=True, help="WandB run id from training")
-
-# Add the --run_id argument
-parser.add_argument("--xp_name", type=str, required=True, help="Experiment name")
-
-# Add the --run_id argument
-parser.add_argument("--config_model", type=str, required=True, help="Model config yaml file")
-
-# Add the --run_id argument
-parser.add_argument("--dataset_name", type=str, required=True, help="Name of the dataset used")
-
-
-# Parse the arguments
-args = parser.parse_args()
-
-# Access the run id
-run_id = args.run_id
-xp_name=args.xp_name
-config_model = args.config_model
-config_name_dataset = args.dataset_name
-
-print("Using WandB Run ID:", run_id)
-
-
+def run_test(trainer, model, datamodule, ckpt_path=None):
+    """Run the test with wandb fallback"""
+    return run_with_wandb_fallback(
+        trainer.test,
+        model=model,
+        datamodule=datamodule,
+        verbose=True,
+        ckpt_path=ckpt_path
+    )
 
 seed_everything(42, workers=True)
 
@@ -103,25 +174,11 @@ bands_yaml = "./data/bands_info/bands.yaml"
 modalities_trans= modalities_transformations_config(configs_dataset,name_config=config_name_dataset)
 test_conf= transformations_config(bands_yaml,config_model)
 
-
  
-wand = True
+# Initialize W&B if enabled
 wandb_logger = None
-if wand:
-    if os.environ.get("LOCAL_RANK", "0") == "0":
-        import wandb
-        run=wandb.init(
-            #id=run_id,            # Pass the run ID from the training run
-            #resume='allow',       # Allow resuming the existing run
-            name=config_model['encoder'],
-            project="Atomizer_BigEarthNet",
-            config=config_model,
-            tags=["evaluation", xp_name, config_model['encoder']]
-        )
-        #wandb_logger = WandbLogger(project="Atomizer_BigEarthNet")
-        wandb_logger = WandbLogger(project="Atomizer_BigEarthNet", experiment=run)
-
-# … everything up through your wandb / logger setup is unchanged …
+if use_wandb:
+    wandb_logger = setup_wandb(config_model, xp_name, run_id)
 
 checkpoint_dir = "./checkpoints"
 all_ckpt_files = [
@@ -148,7 +205,7 @@ print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 ckpt_val = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_val")
 print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 
-
+# Set up data module for testing
 data_module = Tiny_BigEarthNetDataModule(
     f"./data/Tiny_BigEarthNet/{config_name_dataset}",
     batch_size=config_model["dataset"]["batchsize"],
@@ -165,52 +222,39 @@ test_trainer = Trainer(
     devices=[1],
     logger=wandb_logger,
     precision="16-mixed",
-    #default_root_dir="./checkpoints/",
 )
 
-# Instantiate your model and datamodule just once
-model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+# Test with the "train‐best" checkpoint
+print("\n===== Testing model from train-best checkpoint on test data =====")
+model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
 model = load_checkpoint(model, ckpt_train)
 model = model.float()
 model.comment_log="train_best mod_test "
 
-# Test the “train‐best” checkpoint
-test_results_train = test_trainer.test(
-    model=model,
-    datamodule=data_module,
-    verbose=True,
-    ckpt_path=None,
-    
+test_results_train = run_test(
+    test_trainer, 
+    model, 
+    data_module
 )
 
-
-
-
-# Instantiate your model and datamodule just once
-model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+# Test with the "val‐best" checkpoint
+print("\n===== Testing model from val-best checkpoint on test data =====")
+model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
 model = load_checkpoint(model, ckpt_val)
-model = model.half()
+model = model.float()
 model.comment_log="val_best mod_test "
-# Test the “val‐best” checkpoint
-# (Lightning will re-load the model from the new checkpoint)
-test_results_val = test_trainer.test(
-    model=model,
-    datamodule=data_module,
-    ckpt_path=ckpt_val,
-    verbose=True
+
+test_results_val = run_test(
+    test_trainer, 
+    model, 
+    data_module
 )
-
-
 
 print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
 
-# Instantiate your model and datamodule just once
-model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
-model = load_checkpoint(model, ckpt_train)
-model = model.half()
-model.comment_log="val_best mod_test "
-
+# Now test on validation data
+print("\n===== Setting up validation data module =====")
 data_module = Tiny_BigEarthNetDataModule(
     f"./data/Tiny_BigEarthNet/{config_name_dataset}",
     batch_size=config_model["dataset"]["batchsize"],
@@ -221,43 +265,45 @@ data_module = Tiny_BigEarthNetDataModule(
     modality="validation"
 )
 
-#=====================
-# One Trainer is enough; we'll just call .test twice
-test_trainer = Trainer(
-    accelerator="gpu",
-    devices=[1],
-    precision="16-mixed",
-    logger=wandb_logger,
-)
-
+# Test with the "train‐best" checkpoint on validation data
+print("\n===== Testing model from train-best checkpoint on validation data =====")
+model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
+model = load_checkpoint(model, ckpt_train)
+model = model.float()
 model.comment_log="train_best mod_val "
-# Test the “train‐best” checkpoint
-test_results_train = test_trainer.test(
-    model=model,
-    datamodule=data_module,
-    ckpt_path=ckpt_train,
-    verbose=True
+
+test_results_train_val = run_test(
+    test_trainer, 
+    model, 
+    data_module
 )
 
-
-
-
-# Instantiate your model and datamodule just once
-model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
+# Test with the "val‐best" checkpoint on validation data
+print("\n===== Testing model from val-best checkpoint on validation data =====")
+model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
 model = load_checkpoint(model, ckpt_val)
-model = model.half()
+model = model.float()
 model.comment_log="val_best mod_val "
-# Test the “val‐best” checkpoint
-# (Lightning will re-load the model from the new checkpoint)
-test_results_val = test_trainer.test(
-    model=model,
-    datamodule=data_module,
-    ckpt_path=ckpt_val,
-    verbose=True
+
+test_results_val_val = run_test(
+    test_trainer, 
+    model, 
+    data_module
 )
 
+# Clean up wandb
+if use_wandb:
+    try:
+        import wandb
+        if wandb.run is not None:
+            wandb.finish()
+    except:
+        pass
 
-
-
+print("\n===== Final Results =====")
+print("Test dataset results:")
 print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
+print("\nValidation dataset results:")
+print("Results for best_model_val_mod_train:", test_results_train_val)
+print("Results for best_model_val_mod_val:  ", test_results_val_val)
