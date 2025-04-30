@@ -135,7 +135,6 @@ data_module = Tiny_BigEarthNetDataModule(
 
 # One Trainer is enough; we'll just call .test twice
 test_trainer = Trainer(
-    use_distributed_sampler=False,
     accelerator="gpu",
     devices=[0],
     logger=wandb_logger,
@@ -149,6 +148,7 @@ model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
 ckpt = torch.load(ckpt_train, map_location="cuda")
 model.load_state_dict(ckpt["state_dict"], strict=True)
 model = model.float()
+model.comment_log="train_best mod_test "
 
 # Test the “train‐best” checkpoint
 test_results_train = test_trainer.test(
@@ -159,11 +159,7 @@ test_results_train = test_trainer.test(
     
 )
 
-# 1) Record which checkpoint you just tested
-wandb_logger.experiment.summary["train_best_ckpt"] = os.path.basename(ckpt_train)
-# 2) Lift all of its test metrics into the summary with a prefix
-for metric_name, val in test_results_train[0].items():
-    wandb_logger.experiment.summary[f"mod_test_train_best_{metric_name}"] = val
+
 
 
 # Instantiate your model and datamodule just once
@@ -171,7 +167,7 @@ model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
 ckpt = torch.load(ckpt_val, map_location="cuda")
 model.load_state_dict(ckpt["state_dict"], strict=True)
 model = model.half()
-
+model.comment_log="val_best mod_test "
 # Test the “val‐best” checkpoint
 # (Lightning will re-load the model from the new checkpoint)
 test_results_val = test_trainer.test(
@@ -181,11 +177,7 @@ test_results_val = test_trainer.test(
     verbose=True
 )
 
-# 1) Record which ckpt
-wandb_logger.experiment.summary["val_best_ckpt"] = os.path.basename(ckpt_val)
-# 2) Push its test metrics
-for metric_name, val in test_results_val[0].items():
-    wandb_logger.experiment.summary[f"mod_test_val_best_{metric_name}"] = val
+
 
 print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
@@ -193,7 +185,6 @@ print("Results for best_model_val_mod_val:  ", test_results_val)
 #=====================
 # One Trainer is enough; we'll just call .test twice
 test_trainer = Trainer(
-    use_distributed_sampler=False,
     accelerator="gpu",
     devices=[0],
     precision="16-mixed",
@@ -202,7 +193,7 @@ test_trainer = Trainer(
 )
 
 data_module.test_dataset.set_modality_mode("validation")
-
+model.comment_log="train_best mod_val "
 # Test the “train‐best” checkpoint
 test_results_train = test_trainer.test(
     model=model,
@@ -211,11 +202,7 @@ test_results_train = test_trainer.test(
     verbose=True
 )
 
-# 1) Record which checkpoint you just tested
-wandb_logger.experiment.summary["train_best_ckpt"] = os.path.basename(ckpt_train)
-# 2) Lift all of its test metrics into the summary with a prefix
-for metric_name, val in test_results_train[0].items():
-    wandb_logger.experiment.summary[f"mod_val_train_best_{metric_name}"] = val
+
 
 
 # Instantiate your model and datamodule just once
@@ -223,7 +210,7 @@ model = Model(config_model, wand=wand, name=xp_name, transform=test_conf)
 ckpt = torch.load(ckpt_val, map_location="cuda")
 model.load_state_dict(ckpt["state_dict"], strict=True)
 model = model.half()
-
+model.comment_log="val_best mod_val "
 # Test the “val‐best” checkpoint
 # (Lightning will re-load the model from the new checkpoint)
 test_results_val = test_trainer.test(
@@ -233,11 +220,8 @@ test_results_val = test_trainer.test(
     verbose=True
 )
 
-# 1) Record which ckpt
-wandb_logger.experiment.summary["val_best_ckpt"] = os.path.basename(ckpt_val)
-# 2) Push its test metrics
-for metric_name, val in test_results_val[0].items():
-    wandb_logger.experiment.summary[f"mod_val_val_best_{metric_name}"] = val
+
+
 
 print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
