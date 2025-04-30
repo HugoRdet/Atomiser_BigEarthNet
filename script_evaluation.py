@@ -272,11 +272,11 @@ model = load_checkpoint(model, ckpt_train)
 model = model.float()
 model.comment_log="train_best mod_val "
 
-test_results_train_val = run_test(
-    test_trainer, 
-    model, 
-    data_module
-)
+#test_results_train_val = run_test(
+#    test_trainer, 
+#    model, 
+#    data_module
+#)
 
 # Test with the "val‐best" checkpoint on validation data
 print("\n===== Testing model from val-best checkpoint on validation data =====")
@@ -285,11 +285,11 @@ model = load_checkpoint(model, ckpt_val)
 model = model.float()
 model.comment_log="val_best mod_val "
 
-test_results_val_val = run_test(
-    test_trainer, 
-    model, 
-    data_module
-)
+#test_results_val_val = run_test(
+#    test_trainer, 
+#    model, 
+#    data_module
+#)
 
 # Clean up wandb
 if use_wandb:
@@ -302,8 +302,8 @@ if use_wandb:
 
 print("\n===== Final Results =====")
 print("Test dataset results:")
-print("Results for best_model_val_mod_train:", test_results_train)
-print("Results for best_model_val_mod_val:  ", test_results_val)
-print("\nValidation dataset results:")
-print("Results for best_model_val_mod_train:", test_results_train_val)
-print("Results for best_model_val_mod_val:  ", test_results_val_val)
+#print("Results for best_model_val_mod_train:", test_results_train)
+#print("Results for best_model_val_mod_val:  ", test_results_val)
+#print("\nValidation dataset results:")
+#print("Results for best_model_val_mod_train:", test_results_train_val)
+#print("Results for best_model_val_mod_val:  ", test_results_val_val)
