@@ -39,7 +39,7 @@ def pruning(tokens, attention_mask, percent):
 
 
 
-class Atomiser(pl.LightningModule):
+class Perceiver(pl.LightningModule):
     def __init__(
         self,
         *,
