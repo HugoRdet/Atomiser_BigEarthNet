@@ -47,6 +47,7 @@ class Model(pl.LightningModule):
         self.multi_modal = config["trainer"]["multi_modal"]
         self.name = name
         self.table=False
+        self.comment_log=""
 
         
         self.metric_train_AP_per_class = torchmetrics.classification.MultilabelAveragePrecision(self.num_classes, average=None, thresholds=None)
@@ -262,20 +263,20 @@ class Model(pl.LightningModule):
         metric_AP.reset()
 
         if mode=="val_mod_val":
-            self.log("val_mod_val_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("val_mod_val_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(self.comment_log+"val_mod_val_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(self.comment_log+"val_mod_val_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
 
         if mode=="val_mod_train":
-            self.log("val_mod_train_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("val_mod_train_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(self.comment_log+"val_mod_train_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(self.comment_log+"val_mod_train_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
 
         if mode=="train":
-            self.log("train_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("train_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(self.comment_log+"train_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(self.comment_log+"train_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
 
         if mode=="test":
-            self.log("test_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log("test_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(self.comment_log+"test_ap", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(self.comment_log+"test_accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
             
     
         metric_accuracy.reset()
@@ -296,13 +297,13 @@ class Model(pl.LightningModule):
         
             wandb_table = wandb.Table(columns=["Class Name", "Accuracy (%)", "mAP (%)"], data=table_data)
             if modality!=None:
-                wandb.log({f"Metrics Table ({mode}), modality: {modality} ": wandb_table})
+                wandb.log({f"{self.comment_log} Metrics Table ({mode}), modality: {modality} ": wandb_table})
             else:
-                wandb.log({f"Metrics Table ({mode})": wandb_table})
+                wandb.log({f"{self.comment_log} Metrics Table ({mode})": wandb_table})
                 
         if modality !=None:
-            self.log(f"{mode} ,modality: {modality} average accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-            self.log(f"{mode} ,modality: {modality} average AP", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(f"{self.comment_log} {mode} ,modality: {modality} average accuracy", overall_accuracy, on_step=False, on_epoch=True, logger=True, sync_dist=True)
+            self.log(f"{self.comment_log} {mode} ,modality: {modality} average AP", mean_ap, on_step=False, on_epoch=True, logger=True, sync_dist=True)
             
         if all_classes:
             for idx in range(self.num_classes):
