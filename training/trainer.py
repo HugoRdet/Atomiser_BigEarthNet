@@ -142,8 +142,12 @@ class Model(pl.LightningModule):
         if "Atomiser" in self.config["encoder"]:
             return self.encoder(x,mask,training=training)
         else:
+            if "Perceiver" in self.config["encoder"]:
          
-            return self.encoder(x)
+                return self.encoder(x,mask=mask)
+            else:
+                return self.encoder(x)
+                
             
     def training_step(self, batch, batch_idx):
         img,mask, labels, _ = batch
