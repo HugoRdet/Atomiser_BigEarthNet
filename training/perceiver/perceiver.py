@@ -176,10 +176,9 @@ class Perceiver(pl.LightningModule):
         mask = None,
         return_embeddings = False
     ):
-        mask=einops.reduce(mask,"b h w c -> b h w","min")
+        mask=einops.reduce(mask,"b c h w  -> b h w","min")
         mask = mask.to(torch.bool)
         mask=~mask
-        mask=rearrange(mask,"b c h w -> b h w c")
         data=rearrange(data,"b c h w -> b h w c")
         b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
         assert len(axis) == self.input_axis, 'input data must have the right number of axis'
