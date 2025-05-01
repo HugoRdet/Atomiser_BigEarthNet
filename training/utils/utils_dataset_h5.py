@@ -358,9 +358,11 @@ class Tiny_BigEarthNet(Dataset):
         self.transform=transform
         self.model=model
         self.transform_tokens=transform_tokens
+        self.original_mode=mode
 
         if modality_mode==None:
             self.modality_mode=mode
+            self.original_mode=mode
         else:
             self.modality_mode=modality_mode
             self.original_mode=modality_mode
