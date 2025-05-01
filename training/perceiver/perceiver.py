@@ -8,6 +8,7 @@ import pytorch_lightning as pl
 from einops import rearrange, repeat
 from einops.layers.torch import Reduce
 from .nn_comp import*
+import einops as einops
 # helpers
 
 def exists(val):
@@ -175,7 +176,7 @@ class Perceiver(pl.LightningModule):
         mask = None,
         return_embeddings = False
     ):
-        mask=Reduce(mask,"b h w c -> b h w","min")
+        mask=einops.reduce(mask,"b h w c -> b h w","min")
         mask = mask.to(torch.bool)
         mask=~mask
         mask=rearrange(mask,"b c h w -> b h w c")
