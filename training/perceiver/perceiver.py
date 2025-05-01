@@ -175,6 +175,7 @@ class Perceiver(pl.LightningModule):
         mask = None,
         return_embeddings = False
     ):
+        mask=Reduce(mask,"b h w c -> b h w","min")
         mask = mask.to(torch.bool)
         mask=~mask
         mask=rearrange(mask,"b c h w -> b h w c")
@@ -195,8 +196,8 @@ class Perceiver(pl.LightningModule):
 
         # concat to channels of data and flatten axis
 
-        mask= rearrange(mask, 'b h w -> b (h w)')
-
+        
+        mask = rearrange(mask,"b h w -> b (h w)")
         data = rearrange(data, 'b ... d -> b (...) d')
 
         x = repeat(self.latents, 'n d -> b n d', b = b)
