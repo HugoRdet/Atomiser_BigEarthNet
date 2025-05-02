@@ -138,9 +138,9 @@ class Model(pl.LightningModule):
         self.loss = nn.BCEWithLogitsLoss()
         self.lr = float(config["trainer"]["lr"])
         
-    def forward(self, x,mask,training=False):
+    def forward(self, x,mask,resolution,training=False):
         if "Atomiser" in self.config["encoder"]:
-            return self.encoder(x,mask,training=training)
+            return self.encoder(x,mask,resolution,training=training)
         else:
             if "Perceiver" in self.config["encoder"]:
          
@@ -151,7 +151,7 @@ class Model(pl.LightningModule):
             
     def training_step(self, batch, batch_idx):
         img,mask,resolution, labels, _ = batch
-        y_hat = self.forward(img,mask,training=True)
+        y_hat = self.forward(img,mask,resolution,training=True)
         loss = self.loss(y_hat, labels.float())
         self.metric_train_accuracy_per_class.update(y_hat, labels.to(torch.int))
         self.metric_train_AP_per_class.update(y_hat, labels.to(torch.int))
@@ -186,7 +186,7 @@ class Model(pl.LightningModule):
         
     def validation_step(self, batch, batch_idx,dataloader_idx=0):
         img, mask,resolution, labels, _ = batch
-        y_hat = self.forward(img,mask)
+        y_hat = self.forward(img,mask,resolution)
 
         loss = self.loss(y_hat, labels.float())
 
@@ -227,7 +227,7 @@ class Model(pl.LightningModule):
         
     def test_step(self, batch, batch_idx):
         img, mask,resolution, labels, _ = batch
-        y_hat = self.forward(img,mask)
+        y_hat = self.forward(img,mask,resolution)
 
         self.metric_test_accuracy_per_class.update(y_hat, labels.to(torch.int))
         self.metric_test_AP_per_class.update(y_hat, labels.to(torch.int))
