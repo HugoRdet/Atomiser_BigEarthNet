@@ -524,17 +524,17 @@ class transformations_config(nn.Module):
 
         return tokens,token_masks
     
-    def get_tokens(self,img,mask,mode="optique",modality="s2",wave_encoding=None):
+    def get_tokens(self,img,mask,resolution,mode="optique",modality="s2",wave_encoding=None):
         
   
 
         if mode=="optique":
-            return self.apply_transformations_optique(img,mask,modality)
+            return self.apply_transformations_optique(img,mask,resolution,modality)
         if mode=="sar":
             return self.apply_transformations_SAR(img,mask,modality,wave_encoding=wave_encoding)
     
 
-    def process_data(self,img,mask):
+    def process_data(self,img,mask,resolution):
         L_tokens=[]
         L_masks=[]
 
@@ -547,7 +547,7 @@ class transformations_config(nn.Module):
         
         if self.config["dataset"]["S2"]:
             tmp_img,tmp_mask=self.apply_temporal_spatial_transforms(img, mask)
-            tokens_s2,tokens_mask_s2=self.get_tokens(tmp_img,tmp_mask,mode="optique",modality="s2")
+            tokens_s2,tokens_mask_s2=self.get_tokens(tmp_img,tmp_mask,resolution,mode="optique",modality="s2")
             L_masks.append(tokens_mask_s2)
             L_tokens.append(tokens_s2)
 
