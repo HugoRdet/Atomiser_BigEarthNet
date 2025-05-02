@@ -9,15 +9,7 @@ from timm.models.vision_transformer import VisionTransformer
 from torch import Tensor
 from torchvision.models._api import Weights, WeightsEnum
 
-# Normalization constants
-_mean = torch.tensor([0.485, 0.456, 0.406])
-_std = torch.tensor([0.229, 0.224, 0.225])
 
-# Preprocessing pipeline—no data_keys needed when only a single tensor is passed positionally
-_scale_mae_transforms = K.AugmentationSequential(
-    K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
-    K.Normalize(mean=_mean,           std=_std),
-)
 
 
 def get_2d_sincos_pos_embed_with_resolution(
@@ -130,32 +122,7 @@ class CustomScaleMAE(pl.LightningModule):
         self.to_logits = nn.Linear(self.encoder.embed_dim, num_classes)
 
     def forward(self, x: Tensor, res: Tensor) -> Tensor:
-        x = _scale_mae_transforms(x)
         feats = self.encoder.forward_features(x, res)
         cls_feat = feats[:, 0]
         return self.to_logits(cls_feat)
 
-# torchvision WeightEnum override
-Weights.__deepcopy__ = lambda *args, **kwargs: args[0]
-
-class ScaleMAELarge16_Weights(WeightsEnum):
-    FMOW_RGB = Weights(
-        url='https://hf.co/torchgeo/vit_large_patch16_224_fmow_rgb_scalemae/...',
-        transforms=_scale_mae_transforms,
-        meta={ ... },
-    )
-
-
-def scalemae_large_patch16(
-    weights: ScaleMAELarge16_Weights | None = None, *args: Any, **kwargs: Any
-) -> ScaleMAE:
-    model = ScaleMAE(patch_size=16, embed_dim=1024, depth=24, num_heads=16,
-                     mlp_ratio=4, qkv_bias=True,
-                     norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                     *args, **kwargs)
-    if weights:
-        state_dict = weights.get_state_dict(progress=True)
-        if 'img_size' in kwargs and weights.meta['img_size'] != kwargs['img_size']:
-            state_dict = interpolate_pos_embed(model, state_dict)
-        model.load_state_dict(state_dict, strict=False)
-    return model
