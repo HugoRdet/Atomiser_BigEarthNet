@@ -13,11 +13,11 @@ from torchvision.models._api import Weights, WeightsEnum
 _mean = torch.tensor([0.485, 0.456, 0.406])
 _std = torch.tensor([0.229, 0.224, 0.225])
 
-# Fixed preprocessing pipeline with proper data_keys
+# Preprocessing pipeline
 _scale_mae_transforms = K.AugmentationSequential(
     K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
     K.Normalize(mean=_mean, std=_std),
-    data_keys=["input"],  # Specify data_keys as "input"
+    data_keys=None,
 )
 
 
@@ -172,8 +172,8 @@ class CustomScaleMAE(pl.LightningModule):
         x:   (B, C, H, W)
         res: (B,) per-sample resolutions
         """
-        # Apply transforms with proper data key
-        x = _scale_mae_transforms(input=x)  # Use named parameter 'input' to match data_keys
+        # apply transforms if desired
+        x = _scale_mae_transforms(x)
         feats = self.encoder.forward_features(x, res)
         # typically take cls token
         cls_feat = feats[:, 0]
