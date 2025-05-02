@@ -414,7 +414,7 @@ class Tiny_BigEarthNet(Dataset):
 
 
 
-        image,attention_mask=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode)
+        image,attention_mask,new_resolution=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode)
 
         
 
@@ -435,7 +435,7 @@ class Tiny_BigEarthNet(Dataset):
 
         
 
-        return image,attention_mask, label, id_img
+        return image,attention_mask,new_resolution, label, id_img
     
     def Sampler_building(self, idx, mode="train"):
 
