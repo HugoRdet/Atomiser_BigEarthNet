@@ -173,7 +173,7 @@ class CustomScaleMAE(pl.LightningModule):
         res: (B,) per-sample resolutions
         """
         # Apply transforms with proper data key
-        x = _scale_mae_transforms(x=x)  # Use named parameter 'x'
+        x = _scale_mae_transforms(input=x)  # Use named parameter 'input' to match data_keys
         feats = self.encoder.forward_features(x, res)
         # typically take cls token
         cls_feat = feats[:, 0]
