@@ -57,6 +57,10 @@ class ScaleMAE(VisionTransformer):
         super().__init__(*args, **kwargs)
         if self.pos_embed is not None:
             self.pos_embed.requires_grad = False
+        # Make sure cls_token is initialized with the correct embedding dimension
+        if self.cls_token is not None and self.cls_token.shape[-1] != self.embed_dim:
+            print(f"Reinitializing cls_token from {self.cls_token.shape[-1]} to {self.embed_dim}")
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
 
     def forward_features(self, x: Tensor, res: Tensor) -> Tensor:
         # x: (B, C, H, W), res: (B,) per-sample resolution
@@ -83,10 +87,14 @@ class ScaleMAE(VisionTransformer):
         batch_pe = pe_stack[inv_idx]          # (B, N, D)
 
         if self.cls_token is not None:
-            cls = self.cls_token.expand(B, -1, -1)
+            cls = self.cls_token.expand(B, -1, -1)  # Ensure this has dimension D=768
             x = torch.cat((cls, x), dim=1)
-        return self.pos_drop(x + batch_pe)
-
+            # Make sure we're using the correct position embeddings
+            # The batch_pe includes position embedding for cls token (if cls_token is not None)
+            return self.pos_drop(x + batch_pe)
+        else:
+            # No cls token case
+            return self.pos_drop(x + batch_pe)
 
 def interpolate_pos_embed(
     model: ScaleMAE, state_dict: OrderedDict[str, Tensor]
