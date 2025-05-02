@@ -13,13 +13,21 @@ from torchvision.models._api import Weights, WeightsEnum
 _mean = torch.tensor([0.485, 0.456, 0.406])
 _std = torch.tensor([0.229, 0.224, 0.225])
 
-# Preprocessing pipeline
-_scale_mae_transforms = K.AugmentationSequential(
-    K.Normalize(mean=torch.tensor(0),    std=torch.tensor(255), data_keys=["input"]),
-    K.Normalize(mean=_mean,              std=_std,             data_keys=["input"]),
-    data_keys=["input"],  # container-level
-)
+class NormalizeInput(nn.Module):
+    def __init__(self, mean, std):
+        super().__init__()
+        self.mean = mean
+        self.std = std
+    def forward(self, inputs: dict):
+        x = inputs['input']
+        x = (x - self.mean.to(x.device)) / self.std.to(x.device)
+        return {'input': x}
 
+_scale_mae_transforms = K.AugmentationSequential(
+    NormalizeInput(mean=torch.tensor(0),    std=torch.tensor(255)),
+    NormalizeInput(mean=_mean,              std=_std),
+    data_keys=["input"],
+)
 
 def get_2d_sincos_pos_embed_with_resolution(
     embed_dim: int, grid_size: int, res: Tensor, cls_token: bool = False
@@ -172,7 +180,7 @@ class CustomScaleMAE(pl.LightningModule):
         x:   (B, C, H, W)
         res: (B,) per-sample resolutions
         """
-        # apply transforms if desired
+        # … in forward …
         out = _scale_mae_transforms({"input": x})
         x   = out["input"]
         feats = self.encoder.forward_features(x, res)
