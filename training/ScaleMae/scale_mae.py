@@ -15,9 +15,9 @@ _std = torch.tensor([0.229, 0.224, 0.225])
 
 # Preprocessing pipeline
 _scale_mae_transforms = K.AugmentationSequential(
-    K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
-    K.Normalize(mean=_mean, std=_std),
-    data_keys=None,
+    K.Normalize(mean=torch.tensor(0),    std=torch.tensor(255), data_keys=["input"]),
+    K.Normalize(mean=_mean,              std=_std,             data_keys=["input"]),
+    data_keys=["input"],  # container-level
 )
 
 
@@ -173,7 +173,8 @@ class CustomScaleMAE(pl.LightningModule):
         res: (B,) per-sample resolutions
         """
         # apply transforms if desired
-        x = _scale_mae_transforms(x)
+        out = _scale_mae_transforms({"input": x})
+        x   = out["input"]
         feats = self.encoder.forward_features(x, res)
         # typically take cls token
         cls_feat = feats[:, 0]
