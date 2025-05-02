@@ -128,6 +128,8 @@ class Model(pl.LightningModule):
                 final_classifier_head=config["Atomiser"]["final_classifier_head"],
                 masking=config["Atomiser"]["masking"]
             )
+
+        self.resolutions=torch.from_numpy(np.array([60,10,10,10,20,20,20,10,20,60,60,20]))
         
         if config["encoder"] == "ScaleMAE":
             self.encoder=CustomScaleMAE()
@@ -143,10 +145,11 @@ class Model(pl.LightningModule):
             return self.encoder(x,mask,resolution,training=training)
         else:
             if "Perceiver" in self.config["encoder"]:
-         
                 return self.encoder(x,mask=mask)
-            else:
-                return self.encoder(x)
+            elif "ScaleMAE" in self.config["encoder"]:
+                tmp_resolutions=self.resolutions/resolution
+                return self.encoder(x,res=tmp_resolutions)
+            return self.encoder(x)
                 
             
     def training_step(self, batch, batch_idx):
