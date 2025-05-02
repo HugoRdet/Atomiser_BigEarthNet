@@ -5,25 +5,41 @@ from .files_utils import*
 from math import pi
 import einops 
 import numpy as np
+import random
 
-def fourier_encode(x, max_freq, num_bands = 4):
-    x = x.unsqueeze(-1)
-    device, dtype, orig_x = x.device, x.dtype, x
 
-    if num_bands==-1:
-        scales = torch.linspace(1., max_freq , max_freq, device = device, dtype = dtype)
-    else:
-        scales = torch.linspace(1., max_freq / 2, num_bands, device = device, dtype = dtype)
+def apply_spatial_transforms(img: torch.Tensor) -> torch.Tensor:
+    """
+    Apply a random 90-degree rotation and random flips to an image.
 
-    #scales shape: [num_bands]
-    scales = scales[(*((None,) * (len(x.shape) - 1)), Ellipsis)]
-    #scales shape: [len(orig_x.shape),]
+    Args:
+        img (torch.Tensor): Input image tensor of shape [C, H, W]
 
-    x = x * scales * 2*pi
-        
-    x = torch.cat([x.sin(), x.cos()], dim = -1)
-    x = torch.cat((x, orig_x), dim = -1)
-    return x
+    Returns:
+        torch.Tensor: Transformed image tensor of shape [C, H, W]
+    """
+    if img.ndim != 3:
+        raise ValueError(f"Expected a 3-D tensor [C, H, W], got {img.ndim}-D.")
+
+    img_out = img.clone()
+
+    # --- Random 90° rotation ---
+    k = random.randint(0, 3)  # 0, 1, 2, or 3 quarter-turns
+    if k > 0:
+        # dims (1,2) correspond to H and W
+        img_out = torch.rot90(img_out, k=k, dims=(1, 2))
+
+    # --- Random horizontal flip ---
+    if random.random() > 0.5:
+        img_out = img_out.flip(dims=(2,))  # flip width axis
+
+    # --- Random vertical flip ---
+    if random.random() > 0.5:
+        img_out = img_out.flip(dims=(1,))  # flip height axis
+
+    return img_out
+
+
 
 
 class modalities_transformations_config:
@@ -56,6 +72,11 @@ class modalities_transformations_config:
             if band["idx"]==channel_idx:
                 return band_key
         return None
+    
+
+
+
+
             
 
     def get_band_infos(self,band_identifier):
@@ -191,16 +212,21 @@ class modalities_transformations_config:
         if modality_mode==None:
             modality_mode=mode
 
+        img=apply_spatial_transforms(img)
+
 
         file_path=f"{self.path}/{mode}/{idx}_transfos_{modality_mode}.yaml"
         if self.name_config!="":
             file_path=f"{self.path}/{self.name_config}/{mode}/{idx}_transfos_{modality_mode}.yaml"
 
         transfos=read_yaml(file_path)
+
+        resolution_change=1.0
      
         
         
         if "resolution" in transfos:
+            resolution_change=float(transfos["resolution"])
             new_resolution=int(img.shape[1]*float(transfos["resolution"]))
             img,mask=change_resolution(img=img,mask=mask,target_size=new_resolution)
 
@@ -213,10 +239,13 @@ class modalities_transformations_config:
         if "keep" in transfos:
             img,mask=remove_bands(img,mask,self.get_opposite_channels_from_froup(transfos["keep"]))
 
+        #12 120 120 
+
+       
         
 
         
-        return img,mask,new_resolution
+        return img,mask,resolution_change
     
 
     
