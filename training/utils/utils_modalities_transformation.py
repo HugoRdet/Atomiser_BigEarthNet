@@ -216,7 +216,7 @@ class modalities_transformations_config:
         
 
         
-        return img,mask
+        return img,mask,new_resolution
     
 
     

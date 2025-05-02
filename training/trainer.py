@@ -150,7 +150,7 @@ class Model(pl.LightningModule):
                 
             
     def training_step(self, batch, batch_idx):
-        img,mask, labels, _ = batch
+        img,mask,resolution, labels, _ = batch
         y_hat = self.forward(img,mask,training=True)
         loss = self.loss(y_hat, labels.float())
         self.metric_train_accuracy_per_class.update(y_hat, labels.to(torch.int))
@@ -185,7 +185,7 @@ class Model(pl.LightningModule):
 
         
     def validation_step(self, batch, batch_idx,dataloader_idx=0):
-        img, mask, labels, _ = batch
+        img, mask,resolution, labels, _ = batch
         y_hat = self.forward(img,mask)
 
         loss = self.loss(y_hat, labels.float())
@@ -226,7 +226,7 @@ class Model(pl.LightningModule):
         super().on_test_epoch_start()
         
     def test_step(self, batch, batch_idx):
-        img, mask, labels, _ = batch
+        img, mask,resolution, labels, _ = batch
         y_hat = self.forward(img,mask)
 
         self.metric_test_accuracy_per_class.update(y_hat, labels.to(torch.int))
