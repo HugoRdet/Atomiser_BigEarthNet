@@ -113,12 +113,13 @@ checkpoint_callback_val_mod_train = ModelCheckpoint(
 #)
 
 
-accumulator = GradientAccumulationScheduler(scheduling={0: 64})
+accumulator = GradientAccumulationScheduler(scheduling={0: 256,10:64,20:32})
 
 # Trainer
 trainer = Trainer(
     strategy="ddp",
-    devices=-1, #
+    #strategy='ddp_find_unused_parameters_true',
+    devices=-1, 
     max_epochs=config_model["trainer"]["epochs"],
     logger=wandb_logger,
     log_every_n_steps=16,
