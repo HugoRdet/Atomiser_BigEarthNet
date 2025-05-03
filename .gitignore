@@ -1,6 +1,8 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+key_vast
+key_vast.pub
 */__MACOSX/*
 __MACOSX
 *.stderr
