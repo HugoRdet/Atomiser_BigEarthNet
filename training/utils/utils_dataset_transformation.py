@@ -148,43 +148,79 @@ class transformations_config(nn.Module):
         return torch.cat(L_pos,dim=-2)
     
     
-    def get_positional_processing(self,img_shape,resolution,T_size,B_size,modality,device):
-    
-        id_cache=f"positional_encoding_{modality}"
-        encoded = getattr(self, id_cache)
-        if  encoded is not None:
-            
-     
-            encoded = encoded.expand(
-                B_size,               # expand the batch‐axis
-                img_shape[1],      # T (time) stays the same
-                encoded.size(2),      # H
-                encoded.size(3),      # W
-                encoded.size(4),      # C
-                encoded.size(5)       # D
-            )
-            return encoded
+    def get_positional_processing(
+        self,
+        img_shape,             # e.g. (B_size, T_size, H, W, C)
+        resolution: torch.Tensor,      # shape [C], base resolution per band
+        resolution_factor: torch.Tensor,  # shape [B_size], factor per sample
+        T_size: int,
+        B_size: int,
+        modality: str,
+        device
+        ):
+        """
+        Returns: Tensor [B_size, T_size, H, W, C, D]
+        resolution: [C]
+        resolution_factor: [B_size]
+        """
+        # ensure our cache exists
+        if not hasattr(self, "_pos_cache"):
+            self._pos_cache = {}
 
-        #b t h w c
-        size=img_shape[-2]
-        
+        # spatial size (assume H == W)
+        size = img_shape[-2]  # H
 
-        positional_scaling=None
-        if not (resolution is None):
-            positional_scaling=(size * resolution)/400.0
-        
-         
-        max_freq=self.config["Atomiser"]["pos_max_freq"]
-        num_bands=self.config["Atomiser"]["pos_num_freq_bands"]
-        
+        # -- 1) compute per-sample, per-band new resolution: [B, C]
+        #    new_res[i, b] = resolution[b] / resolution_factor[i]
+        new_res = resolution.to(device)[None, :] / resolution_factor.to(device)[:, None]
 
-        encoding=self.pos_encoding(img_shape,size,positional_scaling_l=positional_scaling,max_freq=max_freq,num_bands = num_bands,device=device).unsqueeze(0).unsqueeze(0)
+        # -- 2) compute positional scaling per band: [B, C]
+        pos_scalings = (size * new_res) / 400.0
 
-        encoding = encoding.to(device)
-        setattr(self,id_cache, encoding)
+        max_freq  = self.config["Atomiser"]["pos_max_freq"]
+        num_bands = self.config["Atomiser"]["pos_num_freq_bands"]
 
-        encoding=einops.repeat(encoding,"b t h w c d -> (B b) (T t) h w c d",B=B_size,T=T_size)
-        return encoding
+        # -- 3) find unique scaling vectors in this batch
+        unique_keys   = []    # list of tuple of floats
+        inverse_idxs  = []    # for each sample, index into unique_keys
+        key_to_index  = {}
+
+        for i in range(B_size):
+            # convert this row to a hashable key
+            key = tuple(float(x) for x in pos_scalings[i].tolist())
+            if key not in key_to_index:
+                key_to_index[key] = len(unique_keys)
+                unique_keys.append(key)
+            inverse_idxs.append(key_to_index[key])
+
+        # -- 4) ensure cache entry per unique key
+        bases = []
+        for key in unique_keys:
+            # augment the key by modality and size to avoid collisions
+            cache_key = (modality, size, key)
+            if cache_key not in self._pos_cache:
+                # build raw encoding: returns [H, W, C, D]
+                raw = self.pos_encoding(
+                    img_shape, size,
+                    positional_scaling_l=torch.tensor(key, device=device),
+                    max_freq=max_freq,
+                    num_bands=num_bands,
+                    device=device
+                )
+                # store with two leading dims [1,1,H,W,C,D]
+                self._pos_cache[cache_key] = raw.unsqueeze(0).unsqueeze(0).to(device)
+            bases.append(self._pos_cache[cache_key])
+
+        # -- 5) assemble final batch: pick the right base + expand T
+        encodings = []
+        for idx in range(B_size):
+            base = bases[inverse_idxs[idx]]        # [1,1,H,W,C,D]
+            enc  = base.expand(1, T_size, *base.shape[2:])  # [1,T,H,W,C,D]
+            encodings.append(enc)
+
+        # [B_size, T_size, H, W, C, D]
+        return torch.cat(encodings, dim=0)
+
 
 
     def apply_temporal_spatial_transforms(self, img, mask):
@@ -253,7 +289,6 @@ class transformations_config(nn.Module):
         return (1000/x)-1.5
     
 
-    import torch
 
     def compute_gaussian_band_max_encoding(self, lambda_centers, bandwidths, num_points=50,modality="S2"):
 
@@ -392,7 +427,7 @@ class transformations_config(nn.Module):
          
 
 
-    def apply_transformations_optique(self, im_sen, mask_sen, mode):
+    def apply_transformations_optique(self, im_sen, mask_sen,resolution, mode):
         # --- select band info based on mode ---
         if mode=="s2":
             tmp_infos = self.bands_sen2_infos
@@ -428,7 +463,7 @@ class transformations_config(nn.Module):
 
         # 4) Positional encoding
         band_post_proc = self.get_positional_processing(
-            im_sen.shape, res, T_size, B_size, mode, im_sen.device
+            im_sen.shape, res,resolution, T_size, B_size, mode, im_sen.device
         )
      
 

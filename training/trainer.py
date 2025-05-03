@@ -177,12 +177,19 @@ class Model(pl.LightningModule):
         
         return {"train_loss": train_loss, "train_ap": train_ap}
     
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        # only on the very first real training batch, and only on rank 0
+        if batch_idx == 0 and self.trainer.global_rank == 0:
+            missing = []
+            for name, p in self.named_parameters():
+                if p.requires_grad and p.grad is None:
+                    missing.append(name)
+            if missing:
+                print("⚠️ Still no grad for:\n" + "\n".join(missing))
+            else:
+                print("✅ All parameters got gradients!")
+    
     def on_validation_epoch_start(self):
-        epoch = self.current_epoch
-        #if epoch % 2 == 0:
-        #    
-        #    self.trainer.datamodule.val_dataset.set_modality_mode("train")
-        #else:
         self.trainer.datamodule.val_dataset.set_modality_mode("validation")
 
 
@@ -236,8 +243,8 @@ class Model(pl.LightningModule):
         self.metric_test_AP_per_class.update(y_hat, labels.to(torch.int))
 
     def on_test_epoch_end(self):
-        modality=test_dataset = self.trainer.datamodule.test_dataset.modality_mode
-        print(modality)
+        modality = self.trainer.datamodule.test_dataset.modality_mode
+      
      
         self.compute_metrics(mode="test", table=True, all_classes=False, modality=modality)
         
