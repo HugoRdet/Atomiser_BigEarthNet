@@ -8,7 +8,7 @@ module load conda
 conda activate venv
 
 
-sh TrainEval.sh test_Atos_lancement_3fdsqfds config_test-Atomiser_Atos.yaml regular
+sh TrainEval.sh test_Atos_lancement_Atos config_test-Perceiver.yaml regular
 
 
 

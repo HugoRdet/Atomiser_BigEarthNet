@@ -140,7 +140,7 @@ class Model(pl.LightningModule):
         self.loss = nn.BCEWithLogitsLoss()
         self.lr = float(config["trainer"]["lr"])
         
-    def forward(self, x,mask,resolution,training=False):
+    def forward(self, x,mask,resolution,training=True):
         if "Atomiser" in self.config["encoder"]:
             return self.encoder(x,mask,resolution,training=training)
         else:
@@ -237,7 +237,7 @@ class Model(pl.LightningModule):
         
     def test_step(self, batch, batch_idx):
         img, mask,resolution, labels, _ = batch
-        y_hat = self.forward(img,mask,resolution)
+        y_hat = self.forward(img,mask,resolution,training=False)
 
         self.metric_test_accuracy_per_class.update(y_hat, labels.to(torch.int))
         self.metric_test_AP_per_class.update(y_hat, labels.to(torch.int))
