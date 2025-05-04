@@ -42,9 +42,15 @@ class transformations_config(nn.Module):
         self.bands_yaml=read_yaml(bands_yaml)
         self.bands_sen2_infos=self.bands_yaml["bands_sen2_info"]
         self.s2_waves=self.get_wavelengths_infos(self.bands_sen2_infos)
-        self.s2_res=self.get_resolutions_infos(self.bands_sen2_infos)
+        self.s2_res_tmp=self.get_resolutions_infos(self.bands_sen2_infos)
         self.register_buffer("positional_encoding_s2", None)
         self.register_buffer('wavelength_encoding_s2', None)
+
+        self.register_buffer(
+            "s2_res",
+            torch.tensor(self.s2_res_tmp, dtype=torch.float32),
+            persistent=True
+        )
   
 
         self.config=config
@@ -99,7 +105,7 @@ class transformations_config(nn.Module):
             res.append(band["resolution"])
 
 
-        return np.array(res)
+        return torch.from_numpy(np.array(res))
    
 
 
@@ -172,7 +178,7 @@ class transformations_config(nn.Module):
 
         # -- 1) compute per-sample, per-band new resolution: [B, C]
         #    new_res[i, b] = resolution[b] / resolution_factor[i]
-        new_res = resolution.to(device)[None, :] / resolution_factor.to(device)[:, None]
+        new_res = resolution[None, :] / resolution_factor[:, None]
 
         # -- 2) compute positional scaling per band: [B, C]
         pos_scalings = (size * new_res) / 400.0
@@ -432,6 +438,7 @@ class transformations_config(nn.Module):
         if mode=="s2":
             tmp_infos = self.bands_sen2_infos
             res = self.s2_res
+
             tmp_bandwidth, tmp_central_wavelength = self.s2_waves
 
 
@@ -570,6 +577,7 @@ class transformations_config(nn.Module):
     
 
     def process_data(self,img,mask,resolution):
+        
         L_tokens=[]
         L_masks=[]
 
