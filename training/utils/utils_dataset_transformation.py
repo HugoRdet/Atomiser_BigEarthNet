@@ -25,7 +25,7 @@ def fourier_encode(x, max_freq, num_bands = 4):
     scales = scales[(*((None,) * (len(x.shape) - 1)), Ellipsis)]
     #scales shape: [len(orig_x.shape),]
 
-    x = x * scales * pi
+    x = x * scales * pi * 0.75
         
     x = torch.cat([x.sin(), x.cos()], dim = -1)
     x = torch.cat((x, orig_x), dim = -1)
