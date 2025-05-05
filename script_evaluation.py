@@ -51,7 +51,7 @@ parser.add_argument("--no_wandb", action="store_true", help="Disable W&B logging
 args = parser.parse_args()
 
 # Access the run id
-run_id = args.run_id
+run_id = None#args.run_id
 xp_name=args.xp_name
 config_model = args.config_model
 config_name_dataset = args.dataset_name
