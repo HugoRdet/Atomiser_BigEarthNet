@@ -105,7 +105,7 @@ class transformations_config(nn.Module):
             res.append(band["resolution"])
 
 
-        return torch.from_numpy(np.array(res))
+        return torch.from_numpy(np.array([20 for _ in range(12)]))
    
 
 
@@ -181,9 +181,8 @@ class transformations_config(nn.Module):
         new_res = resolution[None, :] / resolution_factor[:, None]
 
         # -- 2) compute positional scaling per band: [B, C]
-        pos_scalings = (size * new_res) / 400.0
-        print(pos_scalings)
-        raise("haha")
+        pos_scalings = (size * new_res) / 4800.0
+  
         max_freq  = self.config["Atomiser"]["pos_max_freq"]
         num_bands = self.config["Atomiser"]["pos_num_freq_bands"]
 
