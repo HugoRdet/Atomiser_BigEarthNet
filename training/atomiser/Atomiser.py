@@ -176,7 +176,7 @@ class Atomiser(pl.LightningModule):
 
 
 
-    def forward(self, data, mask=None,resolution=None, training=False):
+    def forward(self, data, mask=None,resolution=None, training=True):
         # Preprocess tokens + mask
         
         if len(data.shape)==3:
@@ -199,13 +199,13 @@ class Atomiser(pl.LightningModule):
         for (cross_attn, cross_ff, self_attns) in self.layers:
             # optionally prune
             t, m = tokens, tokens_mask
-            if self.masking > 0:
+            if self.masking > 0 and training:
                 t, m, idx = pruning(t, m, self.masking)
             # cross-attn
             x = cross_attn(x, context=t, mask=m) + x
             x = cross_ff(x) + x
             # restore tokens if pruned
-            if self.masking > 0:
+            if self.masking > 0 and training:
                 tokens[:, idx] = t
                 tokens_mask[:, idx] = m
             # self-attn blocks

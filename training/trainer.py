@@ -196,7 +196,7 @@ class Model(pl.LightningModule):
         
     def validation_step(self, batch, batch_idx,dataloader_idx=0):
         img, mask,resolution, labels, _ = batch
-        y_hat = self.forward(img,mask,resolution)
+        y_hat = self.forward(img,mask,resolution,training=False)
 
         loss = self.loss(y_hat, labels.float())
 
