@@ -203,7 +203,7 @@ class modalities_transformations_config:
             save_path=f"{self.path}/{self.name_config}/{modality_folder}/{img_idx}_transfos_{mode}.yaml"
         save_yaml(save_path,target_dico)
 
-    def apply_transformations(self,img,mask,idx,mode="train",modality_mode=None):
+    def apply_transformations(self,img,mask,idx,mode="train",modality_mode=None,f_s=None,f_r=None):
         """
         apply transformations specified in {self.path}/{idx}_transfos.yaml file.
         This is the function you should call in the get_item
@@ -224,20 +224,35 @@ class modalities_transformations_config:
         resolution_change=1.0
      
         
+        if f_s!=None or f_r!=None:
+            if f_r!=-1 and f_r<1:
+                resolution_change=float(f_r)
+                new_resolution=int(img.shape[1]*float(f_r))
+                img,mask=change_resolution(img=img,mask=mask,target_size=new_resolution)
+        else:
+            if "resolution" in transfos:
+                resolution_change=float(transfos["resolution"])
+                new_resolution=int(img.shape[1]*float(transfos["resolution"]))
+                img,mask=change_resolution(img=img,mask=mask,target_size=new_resolution)
+
         
-        if "resolution" in transfos:
-            resolution_change=float(transfos["resolution"])
-            new_resolution=int(img.shape[1]*float(transfos["resolution"]))
-            img,mask=change_resolution(img=img,mask=mask,target_size=new_resolution)
 
-        if "remove"in transfos:
-            img,mask=remove_bands(img,mask,self.get_channels_from_froup(transfos["remove"]))
+        if f_s!=None or f_r!=None:
+            if f_s!=-1 and f_s<1:
+                transfo_val=change_size_get_only_coordinates(120,int(120*f_s))
+                
+                img,mask=change_size(img,mask,transfo_val)
 
-        if "size" in transfos:     
-            img,mask=change_size(img,mask,transfos["size"])
+        else:
+            if "size" in transfos:     
+                img,mask=change_size(img,mask,transfos["size"])
 
-        if "keep" in transfos:
-            img,mask=remove_bands(img,mask,self.get_opposite_channels_from_froup(transfos["keep"]))
+        if f_s==None and f_r==None:
+            if "remove"in transfos:
+                img,mask=remove_bands(img,mask,self.get_channels_from_froup(transfos["remove"]))
+
+            if "keep" in transfos:
+                img,mask=remove_bands(img,mask,self.get_opposite_channels_from_froup(transfos["keep"]))
 
         #12 120 120 
 
