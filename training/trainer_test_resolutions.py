@@ -221,8 +221,13 @@ class Model_test_resolutions(pl.LightningModule):
         if self.wand:
 
             for idx in range(len(self.resolutions_eval)):
-                
-                class_name = str(np.round(20/self.resolutions_eval[idx],1))
+                class_name=None
+
+                if self.mode_eval=="size":
+                    class_name = str(int(120*self.resolutions_eval[idx]))
+                else:
+                    class_name = str(np.round(20/self.resolutions_eval[idx],1))
+                    
                 table_data.append([class_name, overall_accuracy[idx], mean_ap[idx]])
             
             wandb_table = wandb.Table(columns=[self.mode_eval, "Accuracy (%)", "mAP (%)"], data=table_data)

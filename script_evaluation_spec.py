@@ -93,7 +93,7 @@ def test_size_res_(config_model,name,test_conf,ckpt,comment_log):
     #####
     #SIZE TESTED
     #####
-    sizes_to_test=[0.1,0.9,1]
+    sizes_to_test=[0.25,0.5,0.75,1]
     model = Model_test_resolutions(config_model, wand=True, name=xp_name, transform=test_conf,resolutions=sizes_to_test,mode_eval="size")
     model = load_checkpoint(model,ckpt)
     model = model.float()
@@ -123,7 +123,7 @@ def test_size_res_(config_model,name,test_conf,ckpt,comment_log):
         devices=[1],
         logger=wandb_logger,
         precision="16-mixed",
-        limit_test_batches=3
+        
     )
 
     
@@ -136,7 +136,7 @@ def test_size_res_(config_model,name,test_conf,ckpt,comment_log):
     #####
     #RESOLUTION TESTED
     #####
-    resolutions_to_test=[0.1,0.9,1]
+    resolutions_to_test=[0.25,0.5,0.75,1]
     model = Model_test_resolutions(config_model, wand=True, name=xp_name, transform=test_conf,resolutions=resolutions_to_test)
     model = load_checkpoint(model,ckpt)
     model = model.float()
@@ -163,7 +163,7 @@ def test_size_res_(config_model,name,test_conf,ckpt,comment_log):
         devices=[1],
         logger=wandb_logger,
         precision="16-mixed",
-        limit_test_batches=3
+        
     )
 
     test_results_val_val = run_test(
@@ -283,11 +283,11 @@ def latest_ckpt_for(prefix: str):
     return max(matches, key=os.path.getmtime)
 
 # 1) Best model according to val_mod_train AP
-ckpt_train = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_train")
+ckpt_train = latest_ckpt_for(config_model["encoder"]+str(xp_name)+"-best_model_val_mod_train")
 print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 
 # 2) Best model according to val_mod_val AP
-ckpt_val = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_val")
+ckpt_val = latest_ckpt_for(config_model["encoder"]+str(xp_name)+"-best_model_val_mod_val")
 print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 
 # Set up data module for testing
@@ -307,7 +307,7 @@ test_trainer = Trainer(
     devices=[1],
     logger=wandb_logger,
     precision="16-mixed",
-    limit_test_batches=3
+    
 )
 
 # Test with the "train‐best" checkpoint
