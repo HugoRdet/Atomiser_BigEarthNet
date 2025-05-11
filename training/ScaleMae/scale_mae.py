@@ -65,8 +65,6 @@ class ScaleMAE(VisionTransformer):
     def forward_features(self, x: Tensor, res: Tensor) -> Tensor:
         # x: (B, C, H, W), res: (B,)
         x = self.patch_embed(x)              # -> (B, P, D)
-        # Note: patch_embed in timm already transposes the dimensions properly
-        # No need for additional transpose here
         x = self._pos_embed(x, res)          # -> (B, 1+P, D)
         for blk in self.blocks:
             x = blk(x)
@@ -131,10 +129,8 @@ class CustomScaleMAE(pl.LightningModule):
             embed_dim=768, depth=12, num_heads=12,
             num_classes=num_classes  # Configure the built-in head
         )
-        # No need for self.to_logits since we're using the built-in head
-
+        
     def forward(self, x: Tensor, res: Tensor) -> Tensor:
-        # Use the complete encoder forward method that includes the head
         feats = self.encoder.forward_features(x, res)
         cls_feat = feats[:, 0]
         return self.encoder.head(cls_feat)

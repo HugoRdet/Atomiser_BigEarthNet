@@ -54,7 +54,8 @@ args = parser.parse_args()
 run_id = None#args.run_id
 xp_name=args.xp_name
 config_model = args.config_model
-config_name_dataset = args.dataset_name
+config_name_dataset = "regular"
+config_name_dataset_force = args.dataset_name
 use_wandb = not args.no_wandb
 
 print("Using WandB Run ID:", run_id)
@@ -89,12 +90,12 @@ def load_checkpoint(model, checkpoint_path):
     
     return model
 
-def test_size_res_(config_model,name,test_conf,ckpt,comment_log):
+def test_size_res_(config_model,modalities_trans,test_conf,ckpt,comment_log,modality_name):
     #####
     #SIZE TESTED
     #####
-    sizes_to_test=[0.25,0.5,0.75,1]
-    model = Model_test_resolutions(config_model, wand=True, name=xp_name, transform=test_conf,resolutions=sizes_to_test,mode_eval="size")
+    sizes_to_test=[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
+    model = Model_test_resolutions(config_model, wand=True, name=xp_name, transform=test_conf,resolutions=sizes_to_test,mode_eval="size",modality_name=modality_name)
     model = load_checkpoint(model,ckpt)
     model = model.float()
     model.comment_log=comment_log
@@ -136,8 +137,8 @@ def test_size_res_(config_model,name,test_conf,ckpt,comment_log):
     #####
     #RESOLUTION TESTED
     #####
-    resolutions_to_test=[0.25,0.5,0.75,1]
-    model = Model_test_resolutions(config_model, wand=True, name=xp_name, transform=test_conf,resolutions=resolutions_to_test)
+    resolutions_to_test=[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
+    model = Model_test_resolutions(config_model, wand=True, name=xp_name, transform=test_conf,resolutions=resolutions_to_test,modality_name=modality_name)
     model = load_checkpoint(model,ckpt)
     model = model.float()
     
@@ -174,7 +175,7 @@ def test_size_res_(config_model,name,test_conf,ckpt,comment_log):
 
     model.comment_log=original_comment_log
 
-def setup_wandb(config_model, xp_name, run_id=None):
+def setup_wandb(config_model, xp_name, run_id=None,config_name_dataset_force=None):
     """Set up W&B logging with error handling and reconnection logic"""
     if os.environ.get("LOCAL_RANK", "0") == "0":
         try:
@@ -188,9 +189,9 @@ def setup_wandb(config_model, xp_name, run_id=None):
                 id=None,
                 resume="allow" if run_id else None,
                 name=config_model['encoder'],
-                project="Atomizer_BigEarthNet_eval",
+                project="Atomizer_BigEarthNet_mutliple",
                 config=config_model,
-                tags=["evaluation", xp_name, config_model['encoder']],
+                tags=["evaluation", config_model['encoder'],config_name_dataset_force],
                 settings=wandb.Settings(
                     _service_wait=300,  # Wait up to 5 minutes for service to respond
                     _file_stream_buffer=8192,  # Increase buffer size
@@ -198,7 +199,7 @@ def setup_wandb(config_model, xp_name, run_id=None):
             )
             
             # Create logger with the run
-            logger = WandbLogger(project="Atomizer_BigEarthNet_eval", experiment=run)
+            logger = WandbLogger(project="Atomizer_BigEarthNet_mutliple", experiment=run)
             
             print("W&B logging successfully initialized")
             return logger
@@ -253,17 +254,19 @@ torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision('medium')
 
 config_model = read_yaml("./training/configs/"+config_model)
-configs_dataset=f"./data/Tiny_BigEarthNet/configs_dataset_{config_name_dataset}.yaml"
+configs_dataset=f"./data/Tiny_BigEarthNet/configs_dataset_regular.yaml"
+configs_dataset_force=read_yaml(f"./data/Tiny_BigEarthNet/custom_modalities/configs_dataset_{config_name_dataset_force}.yaml")
+
 bands_yaml = "./data/bands_info/bands.yaml"
 
-modalities_trans= modalities_transformations_config(configs_dataset,name_config=config_name_dataset)
+modalities_trans= modalities_transformations_config(configs_dataset,name_config=config_name_dataset,force_modality=configs_dataset_force)
 test_conf= transformations_config(bands_yaml,config_model)
 
  
 # Initialize W&B if enabled
 wandb_logger = None
 if use_wandb:
-    wandb_logger = setup_wandb(config_model, xp_name, run_id)
+    wandb_logger = setup_wandb(config_model, xp_name, run_id,config_name_dataset_force)
 
 checkpoint_dir = "./checkpoints"
 all_ckpt_files = [
@@ -283,12 +286,9 @@ def latest_ckpt_for(prefix: str):
     return max(matches, key=os.path.getmtime)
 
 # 1) Best model according to val_mod_train AP
-ckpt_train = latest_ckpt_for(config_model["encoder"]+str(xp_name)+"-best_model_val_mod_train")
+ckpt_train = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_train")
 print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 
-# 2) Best model according to val_mod_val AP
-ckpt_val = latest_ckpt_for(config_model["encoder"]+str(xp_name)+"-best_model_val_mod_val")
-print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 
 # Set up data module for testing
 data_module = Tiny_BigEarthNetDataModule(
@@ -315,9 +315,9 @@ print("\n===== Testing model from train-best checkpoint on test data =====")
 model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
 model = load_checkpoint(model, ckpt_train)
 model = model.float()
-#test_size_res_(config_model,name,test_conf,ckpt,comment_log)
-test_size_res_(config_model,xp_name,test_conf,ckpt_train,"train_best")
-model.comment_log="train_best mod_test "
+
+test_size_res_(config_model,modalities_trans,test_conf,ckpt_train,"train_best",modality_name=config_name_dataset_force)
+model.comment_log=""
 
 test_results_train = run_test(
     test_trainer, 
@@ -325,60 +325,10 @@ test_results_train = run_test(
     data_module
 )
 
-# Test with the "val‐best" checkpoint
-print("\n===== Testing model from val-best checkpoint on test data =====")
-model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
-model = load_checkpoint(model, ckpt_val)
-model = model.float()
-test_size_res_(config_model,xp_name,test_conf,ckpt_val,"val_best")
-model.comment_log="val_best mod_test "
 
-test_results_val = run_test(
-    test_trainer, 
-    model, 
-    data_module
-)
 
-#print("Results for best_model_val_mod_train:", test_results_train)
-print("Results for best_model_val_mod_val:  ", test_results_val)
 
-# Now test on validation data
-print("\n===== Setting up validation data module =====")
-data_module = Tiny_BigEarthNetDataModule(
-    f"./data/Tiny_BigEarthNet/{config_name_dataset}",
-    batch_size=config_model["dataset"]["batchsize"],
-    num_workers=4,
-    trans_modalities=modalities_trans,
-    trans_tokens=None,
-    model=config_model["encoder"],
-    modality="validation"
-)
 
-# Test with the "train‐best" checkpoint on validation data
-print("\n===== Testing model from train-best checkpoint on validation data =====")
-model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
-model = load_checkpoint(model, ckpt_train)
-model = model.float()
-model.comment_log="train_best mod_val "
-
-test_results_train_val = run_test(
-    test_trainer, 
-    model, 
-    data_module
-)
-
-# Test with the "val‐best" checkpoint on validation data
-print("\n===== Testing model from val-best checkpoint on validation data =====")
-model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
-model = load_checkpoint(model, ckpt_val)
-model = model.float()
-model.comment_log="val_best mod_val "
-
-test_results_val_val = run_test(
-    test_trainer, 
-    model, 
-    data_module
-)
 
 
 

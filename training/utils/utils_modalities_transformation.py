@@ -44,8 +44,9 @@ def apply_spatial_transforms(img: torch.Tensor) -> torch.Tensor:
 
 class modalities_transformations_config:
 
-    def __init__(self,configs_dataset,path_imgs_config="./data/Tiny_BigEarthNet/",bands_infos="./data/bands_info/bands.yaml",name_config=""):
+    def __init__(self,configs_dataset,path_imgs_config="./data/Tiny_BigEarthNet/",bands_infos="./data/bands_info/bands.yaml",name_config="",force_modality=None):
 
+        self.force_modality=force_modality
         self.name_config=name_config
         self.configs_dataset=read_yaml(configs_dataset)
         self.groups=self.configs_dataset["groups"]
@@ -215,11 +216,13 @@ class modalities_transformations_config:
         img=apply_spatial_transforms(img)
 
 
-        file_path=f"{self.path}/{mode}/{idx}_transfos_{modality_mode}.yaml"
-        if self.name_config!="":
-            file_path=f"{self.path}/{self.name_config}/{mode}/{idx}_transfos_{modality_mode}.yaml"
+        transfos=self.force_modality
+        if self.force_modality==None:
+            file_path=f"{self.path}/{mode}/{idx}_transfos_{modality_mode}.yaml"
+            if self.name_config!="":
+                file_path=f"{self.path}/{self.name_config}/{mode}/{idx}_transfos_{modality_mode}.yaml"
 
-        transfos=read_yaml(file_path)
+            transfos=read_yaml(file_path)
 
         resolution_change=1.0
      
@@ -239,20 +242,24 @@ class modalities_transformations_config:
 
         if f_s!=None or f_r!=None:
             if f_s!=-1 and f_s<1:
-                transfo_val=change_size_get_only_coordinates(120,int(120*f_s))
+                transfo_val=change_size_get_only_coordinates(120,int(120*f_s),center=True)
                 
                 img,mask=change_size(img,mask,transfo_val)
 
         else:
             if "size" in transfos:     
-                img,mask=change_size(img,mask,transfos["size"])
+                if type(transfos["size"])==float:
+                    if transfos["size"]<1:
+                        transfo_val=change_size_get_only_coordinates(120,int(120*transfos["size"]),center=True)
+                        img,mask=change_size(img,mask,transfo_val)
+                else:
+                    img,mask=change_size(img,mask,float(transfos["size"]))
 
-        if f_s==None and f_r==None:
-            if "remove"in transfos:
-                img,mask=remove_bands(img,mask,self.get_channels_from_froup(transfos["remove"]))
+        if "remove"in transfos:
+            img,mask=remove_bands(img,mask,self.get_channels_from_froup(transfos["remove"]))
 
-            if "keep" in transfos:
-                img,mask=remove_bands(img,mask,self.get_opposite_channels_from_froup(transfos["keep"]))
+        if "keep" in transfos:
+            img,mask=remove_bands(img,mask,self.get_opposite_channels_from_froup(transfos["keep"]))
 
         #12 120 120 
 
