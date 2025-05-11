@@ -28,11 +28,16 @@ def random_between(a, b):
     return ((b - a) * torch.rand(()) + a).item()
 
 
-def change_size_get_only_coordinates(orig_size,new_size):
+def change_size_get_only_coordinates(orig_size,new_size,center=False):
     
 
-    new_center_x=int(random_between(int(new_size/2.0),int(orig_size-new_size/2.0)+1))
-    new_center_y=int(random_between(int(new_size/2.0),int(orig_size-new_size/2.0)+1))
+    if center:
+        new_center_x=60
+        new_center_y=60
+    else:
+            
+        new_center_x=int(random_between(int(new_size/2.0),int(orig_size-new_size/2.0)+1))
+        new_center_y=int(random_between(int(new_size/2.0),int(orig_size-new_size/2.0)+1))
     
     
     x_min=int(new_center_x-new_size/2.0)

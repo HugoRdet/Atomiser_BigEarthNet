@@ -32,7 +32,7 @@ from transformers import get_cosine_schedule_with_warmup
 warnings.filterwarnings("ignore", message="No positive samples found in target, recall is undefined. Setting recall to one for all thresholds.")
 
 class Model_test_resolutions(pl.LightningModule):
-    def __init__(self, config, wand, name,transform,resolutions,mode_eval="resolution"):
+    def __init__(self, config, wand, name,transform,resolutions,mode_eval="resolution",modality_name=""):
         super().__init__()
         self.resolutions_eval=resolutions
         self.strict_loading = False
@@ -50,6 +50,7 @@ class Model_test_resolutions(pl.LightningModule):
         self.table=False
         self.comment_log=""
         self.mode_eval=mode_eval
+        self.modality_name=modality_name
         
 
         
@@ -228,9 +229,9 @@ class Model_test_resolutions(pl.LightningModule):
                 else:
                     class_name = str(np.round(20/self.resolutions_eval[idx],1))
                     
-                table_data.append([class_name, overall_accuracy[idx], mean_ap[idx]])
+                table_data.append([class_name,self.modality_name, overall_accuracy[idx], mean_ap[idx]])
             
-            wandb_table = wandb.Table(columns=[self.mode_eval, "Accuracy (%)", "mAP (%)"], data=table_data)
+            wandb_table = wandb.Table(columns=[self.mode_eval,"modality name", "Accuracy (%)", "mAP (%)"], data=table_data)
             if modality!=None:
                 wandb.log({f"{self.comment_log} Metrics Table ({self.mode_eval})": wandb_table})
             else:

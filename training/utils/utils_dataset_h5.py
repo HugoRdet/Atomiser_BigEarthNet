@@ -379,9 +379,9 @@ class Tiny_BigEarthNet(Dataset):
         with h5py.File(self.file_path, 'r') as f:
             self.num_samples = len(f.keys()) // 6  # Nombre d'échantillons
 
-            for idx in range(self.num_samples):
-                shape_key = int(f[f'shape_{self.mode}_{idx}'][()])
-                self.shapes.append(shape_key)
+            #for idx in range(self.num_samples):
+            #    shape_key = int(f[f'shape_{self.mode}_{idx}'][()])
+            #    self.shapes.append(shape_key)
 
 
   
@@ -618,40 +618,18 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
       
             self.modality="train"
 
-        if self.trans_tokens!=None:
-
-            batch_sampler = DistributedShapeBasedBatchSampler(
-                self.train_dataset,
-                batch_size=self.batch_size,
-                shuffle=True,
-                drop_last=False,
-                mode=self.modality
-            )
-
- 
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Train DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.train_dataset,
-                num_workers=self.num_workers,
-                #worker_init_fn=_init_worker,
-                batch_sampler=batch_sampler,
-                #pin_memory=True,
-                #prefetch_factor=8,  # increased prefetch for smoother transfers
-                #persistent_workers=True  # avoid worker restart overhead
-            )
-        else:
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Train DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.train_dataset,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                pin_memory=True,
-                batch_size=self.batch_size,
-                prefetch_factor=8,  # increased prefetch for smoother transfers
-                persistent_workers=True  # avoid worker restart overhead
-            )
+    
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        print(f"Train DataLoader created on rank: {rank}")
+        return DataLoader(
+            self.train_dataset,
+            num_workers=self.num_workers,
+            worker_init_fn=_init_worker,
+            pin_memory=True,
+            batch_size=self.batch_size,
+            prefetch_factor=8,  # increased prefetch for smoother transfers
+            persistent_workers=True  # avoid worker restart overhead
+        )
 
 
     def val_dataloader(self):
@@ -659,55 +637,32 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         if self.modality==None:
             self.modality="validation"
 
-        if self.trans_tokens!=None:
+        
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        print(f"Validation DataLoader created on rank: {rank}")
 
+        val_mod_val=DataLoader(
+            self.val_dataset,
+            num_workers=self.num_workers,
+            worker_init_fn=_init_worker,
+            #batch_sampler=batch_sampler,
+            pin_memory=True,
+            batch_size=self.batch_size,
+            prefetch_factor=8,  # increased prefetch for smoother transfers
+            persistent_workers=True  # avoid worker restart overhead
+        )
 
-            batch_sampler = DistributedShapeBasedBatchSampler(
-                self.val_dataset,
-                batch_size=self.batch_size,
-                shuffle=True,
-                drop_last=False,
-                mode=self.modality
-            )
-
- 
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Validation DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.val_dataset,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                batch_sampler=batch_sampler,
-                #pin_memory=True,
-                #prefetch_factor=8,  # increased prefetch for smoother transfers
-                #persistent_workers=True  # avoid worker restart overhead
-            )
-        else:
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Validation DataLoader created on rank: {rank}")
-
-            val_mod_val=DataLoader(
-                self.val_dataset,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                #batch_sampler=batch_sampler,
-                pin_memory=True,
-                batch_size=self.batch_size,
-                prefetch_factor=8,  # increased prefetch for smoother transfers
-                persistent_workers=True  # avoid worker restart overhead
-            )
-
-            val_mod_train=DataLoader(
-                self.val_dataset_mode_train,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                #batch_sampler=batch_sampler,
-                pin_memory=True,
-                batch_size=self.batch_size,
-                prefetch_factor=8,  # increased prefetch for smoother transfers
-                persistent_workers=True  # avoid worker restart overhead
-            )
-            return [val_mod_val,val_mod_train]
+        val_mod_train=DataLoader(
+            self.val_dataset_mode_train,
+            num_workers=self.num_workers,
+            worker_init_fn=_init_worker,
+            #batch_sampler=batch_sampler,
+            pin_memory=True,
+            batch_size=self.batch_size,
+            prefetch_factor=8,  # increased prefetch for smoother transfers
+            persistent_workers=True  # avoid worker restart overhead
+        )
+        return [val_mod_val,val_mod_train]
 
 
     def test_dataloader(self):
@@ -716,41 +671,19 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         if self.modality==None:
             self.modality="test"
 
-        if self.trans_tokens!=None:
-
-            batch_sampler = DistributedShapeBasedBatchSampler(
-                self.test_dataset,
-                batch_size=self.batch_size,
-                shuffle=True,
-                drop_last=False,
-                mode=self.modality
-            )
-
-
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Test DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.test_dataset,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                batch_sampler=batch_sampler,
-                #pin_memory=True,
-                #prefetch_factor=4,  # increased prefetch for smoother transfers
-                #persistent_workers=True  # avoid worker restart overhead
-            )
-        else:
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Test DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.test_dataset,
-                num_workers=self.num_workers,
-                batch_size=self.batch_size,
-                worker_init_fn=_init_worker,
-                #batch_sampler=batch_sampler,
-                pin_memory=True,
-                prefetch_factor=4,  # increased prefetch for smoother transfers
-                persistent_workers=True  # avoid worker restart overhead
-            )
+        
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        print(f"Test DataLoader created on rank: {rank}")
+        return DataLoader(
+            self.test_dataset,
+            num_workers=self.num_workers,
+            batch_size=self.batch_size,
+            worker_init_fn=_init_worker,
+            #batch_sampler=batch_sampler,
+            pin_memory=True,
+            prefetch_factor=4,  # increased prefetch for smoother transfers
+            persistent_workers=True  # avoid worker restart overhead
+        )
 
 
 
@@ -863,40 +796,18 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
       
             self.modality="train"
 
-        if self.trans_tokens!=None:
-
-            batch_sampler = DistributedShapeBasedBatchSampler(
-                self.train_dataset,
-                batch_size=self.batch_size,
-                shuffle=True,
-                drop_last=False,
-                mode=self.modality
-            )
-
- 
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Train DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.train_dataset,
-                num_workers=self.num_workers,
-                #worker_init_fn=_init_worker,
-                batch_sampler=batch_sampler,
-                #pin_memory=True,
-                #prefetch_factor=8,  # increased prefetch for smoother transfers
-                #persistent_workers=True  # avoid worker restart overhead
-            )
-        else:
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Train DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.train_dataset,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                pin_memory=True,
-                batch_size=self.batch_size,
-                prefetch_factor=8,  # increased prefetch for smoother transfers
-                persistent_workers=True  # avoid worker restart overhead
-            )
+      
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        print(f"Train DataLoader created on rank: {rank}")
+        return DataLoader(
+            self.train_dataset,
+            num_workers=self.num_workers,
+            worker_init_fn=_init_worker,
+            pin_memory=True,
+            batch_size=self.batch_size,
+            prefetch_factor=8,  # increased prefetch for smoother transfers
+            persistent_workers=True  # avoid worker restart overhead
+        )
 
 
     def val_dataloader(self):
@@ -904,55 +815,32 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
         if self.modality==None:
             self.modality="validation"
 
-        if self.trans_tokens!=None:
+        
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        print(f"Validation DataLoader created on rank: {rank}")
 
+        val_mod_val=DataLoader(
+            self.val_dataset,
+            num_workers=self.num_workers,
+            worker_init_fn=_init_worker,
+            #batch_sampler=batch_sampler,
+            pin_memory=True,
+            batch_size=self.batch_size,
+            prefetch_factor=8,  # increased prefetch for smoother transfers
+            persistent_workers=True  # avoid worker restart overhead
+        )
 
-            batch_sampler = DistributedShapeBasedBatchSampler(
-                self.val_dataset,
-                batch_size=self.batch_size,
-                shuffle=True,
-                drop_last=False,
-                mode=self.modality
-            )
-
- 
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Validation DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.val_dataset,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                batch_sampler=batch_sampler,
-                #pin_memory=True,
-                #prefetch_factor=8,  # increased prefetch for smoother transfers
-                #persistent_workers=True  # avoid worker restart overhead
-            )
-        else:
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Validation DataLoader created on rank: {rank}")
-
-            val_mod_val=DataLoader(
-                self.val_dataset,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                #batch_sampler=batch_sampler,
-                pin_memory=True,
-                batch_size=self.batch_size,
-                prefetch_factor=8,  # increased prefetch for smoother transfers
-                persistent_workers=True  # avoid worker restart overhead
-            )
-
-            val_mod_train=DataLoader(
-                self.val_dataset_mode_train,
-                num_workers=self.num_workers,
-                worker_init_fn=_init_worker,
-                #batch_sampler=batch_sampler,
-                pin_memory=True,
-                batch_size=self.batch_size,
-                prefetch_factor=8,  # increased prefetch for smoother transfers
-                persistent_workers=True  # avoid worker restart overhead
-            )
-            return [val_mod_val,val_mod_train]
+        val_mod_train=DataLoader(
+            self.val_dataset_mode_train,
+            num_workers=self.num_workers,
+            worker_init_fn=_init_worker,
+            #batch_sampler=batch_sampler,
+            pin_memory=True,
+            batch_size=self.batch_size,
+            prefetch_factor=8,  # increased prefetch for smoother transfers
+            persistent_workers=True  # avoid worker restart overhead
+        )
+        return [val_mod_val,val_mod_train]
 
 
     def test_dataloader(self):
@@ -961,42 +849,20 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
         if self.modality==None:
             self.modality="test"
 
-        if self.trans_tokens!=None:
+  
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        print(f"Test DataLoader created on rank: {rank}")
 
-            batch_sampler = DistributedShapeBasedBatchSampler(
-                self.test_dataset,
+        res=[]
+
+        for dataset in self.test_dataset:
+            tmp_dataloader=DataLoader(
+                dataset,
+                num_workers=1,
                 batch_size=self.batch_size,
-                shuffle=True,
-                drop_last=False,
-                mode=self.modality
-            )
-
-
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Test DataLoader created on rank: {rank}")
-            return DataLoader(
-                self.test_dataset,
-                num_workers=self.num_workers,
                 worker_init_fn=_init_worker,
-                batch_sampler=batch_sampler,
-                #pin_memory=True,
-                #prefetch_factor=4,  # increased prefetch for smoother transfers
-                #persistent_workers=True  # avoid worker restart overhead
             )
-        else:
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            print(f"Test DataLoader created on rank: {rank}")
 
-            res=[]
-
-            for dataset in self.test_dataset:
-                tmp_dataloader=DataLoader(
-                    dataset,
-                    num_workers=1,
-                    batch_size=self.batch_size,
-                    worker_init_fn=_init_worker,
-                )
-
-                res.append(tmp_dataloader)
-            
-            return res
+            res.append(tmp_dataloader)
+        
+        return res
