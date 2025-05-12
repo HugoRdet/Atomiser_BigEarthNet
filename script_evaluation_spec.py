@@ -128,11 +128,11 @@ def test_size_res_(config_model,modalities_trans,test_conf,ckpt,comment_log,moda
     )
 
     
-    test_results_val_val = run_test(
-        test_trainer, 
-        model, 
-        data_module
-    )
+    #test_results_val_val = run_test(
+    #    test_trainer, 
+    #    model, 
+    #    data_module
+    #)
 
     #####
     #RESOLUTION TESTED
