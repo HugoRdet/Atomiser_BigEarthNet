@@ -253,7 +253,7 @@ class modalities_transformations_config:
                         transfo_val=change_size_get_only_coordinates(120,int(120*transfos["size"]),center=True)
                         img,mask=change_size(img,mask,transfo_val)
                 else:
-                    img,mask=change_size(img,mask,float(transfos["size"]))
+                    img,mask=change_size(img,mask,transfos["size"])
 
         if "remove"in transfos:
             img,mask=remove_bands(img,mask,self.get_channels_from_froup(transfos["remove"]))
