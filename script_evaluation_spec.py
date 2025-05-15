@@ -128,11 +128,11 @@ def test_size_res_(config_model,modalities_trans,test_conf,ckpt,comment_log,moda
     )
 
     
-    #test_results_val_val = run_test(
-    #    test_trainer, 
-    #    model, 
-    #    data_module
-    #)
+    test_results_val_val = run_test(
+        test_trainer, 
+        model, 
+        data_module
+    )
 
     #####
     #RESOLUTION TESTED
@@ -316,8 +316,8 @@ model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
 model = load_checkpoint(model, ckpt_train)
 model = model.float()
 
-test_size_res_(config_model,modalities_trans,test_conf,ckpt_train,"train_best",modality_name=config_name_dataset_force)
-model.comment_log=""
+#test_size_res_(config_model,modalities_trans,test_conf,ckpt_train,"train_best",modality_name=config_name_dataset_force)
+model.comment_log=config_name_dataset_force
 
 test_results_train = run_test(
     test_trainer, 
