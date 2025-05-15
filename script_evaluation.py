@@ -279,17 +279,17 @@ test_results_train_val = run_test(
 )
 
 # Test with the "val‐best" checkpoint on validation data
-print("\n===== Testing model from val-best checkpoint on validation data =====")
-model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
-model = load_checkpoint(model, ckpt_val)
-model = model.float()
-model.comment_log="val_best mod_val "
+#print("\n===== Testing model from val-best checkpoint on validation data =====")
+#model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
+#model = load_checkpoint(model, ckpt_val)
+#model = model.float()
+#model.comment_log="val_best mod_val "
 
-test_results_val_val = run_test(
-    test_trainer, 
-    model, 
-    data_module
-)
+#test_results_val_val = run_test(
+#    test_trainer, 
+#    model, 
+#    data_module
+#)
 
 # Clean up wandb
 if use_wandb:
