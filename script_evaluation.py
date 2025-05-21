@@ -198,12 +198,16 @@ def latest_ckpt_for(prefix: str):
     return max(matches, key=os.path.getmtime)
 
 # 1) Best model according to val_mod_train AP
-ckpt_train = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_train")
+#prefix
+prefix=config_model["encoder"]
+if prefix=="Atomiser":
+    prefix="Atomiserxp_20250516_234544"
+ckpt_train = latest_ckpt_for(config_model["encoder"])
 print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 
 # 2) Best model according to val_mod_val AP
-ckpt_val = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_val")
-print("→ Testing on ckpt (val_mod_val):", ckpt_val)
+#ckpt_val = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_val")
+#print("→ Testing on ckpt (val_mod_val):", ckpt_val)
 
 # Set up data module for testing
 data_module = Tiny_BigEarthNetDataModule(
@@ -238,11 +242,11 @@ test_results_train = run_test(
 )
 
 # Test with the "val‐best" checkpoint
-print("\n===== Testing model from val-best checkpoint on test data =====")
-model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
-model = load_checkpoint(model, ckpt_val)
-model = model.float()
-model.comment_log="val_best mod_test "
+#print("\n===== Testing model from val-best checkpoint on test data =====")
+#model = Model(config_model, wand=use_wandb, name=xp_name, transform=test_conf)
+#model = load_checkpoint(model, ckpt_val)
+#model = model.float()
+#model.comment_log="val_best mod_test "
 
 test_results_val = run_test(
     test_trainer, 
@@ -304,6 +308,4 @@ print("\n===== Final Results =====")
 print("Test dataset results:")
 print("Results for best_model_val_mod_train:", test_results_train)
 print("Results for best_model_val_mod_val:  ", test_results_val)
-print("\nValidation dataset results:")
-print("Results for best_model_val_mod_train:", test_results_train_val)
-print("Results for best_model_val_mod_val:  ", test_results_val_val)
+
