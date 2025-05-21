@@ -22,4 +22,4 @@ MODEL_NAME=config_test-Atomiser_Atos.yaml
 
 
 
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_3
+sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" Big

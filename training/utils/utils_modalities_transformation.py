@@ -223,6 +223,7 @@ class modalities_transformations_config:
                 file_path=f"{self.path}/{self.name_config}/{mode}/{idx}_transfos_{modality_mode}.yaml"
 
             transfos=read_yaml(file_path)
+            
 
         resolution_change=1.0
      
@@ -243,7 +244,6 @@ class modalities_transformations_config:
         if f_s!=None or f_r!=None:
             if f_s!=-1 and f_s<1:
                 transfo_val=change_size_get_only_coordinates(120,int(120*f_s),center=True)
-                
                 img,mask=change_size(img,mask,transfo_val)
 
         else:

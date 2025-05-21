@@ -679,6 +679,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             batch_size=self.batch_size,
             worker_init_fn=_init_worker,
+            drop_last=False,
             #batch_sampler=batch_sampler,
             pin_memory=True,
             prefetch_factor=4,  # increased prefetch for smoother transfers
@@ -861,6 +862,7 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
                 num_workers=1,
                 batch_size=self.batch_size,
                 worker_init_fn=_init_worker,
+                drop_last=False,
             )
 
             res.append(tmp_dataloader)

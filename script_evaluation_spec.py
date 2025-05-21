@@ -286,7 +286,7 @@ def latest_ckpt_for(prefix: str):
     return max(matches, key=os.path.getmtime)
 
 # 1) Best model according to val_mod_train AP
-ckpt_train = latest_ckpt_for(config_model["encoder"]+"-best_model_val_mod_train")
+ckpt_train = latest_ckpt_for(config_model["encoder"])
 print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 
 
@@ -317,7 +317,7 @@ model = load_checkpoint(model, ckpt_train)
 model = model.float()
 
 #test_size_res_(config_model,modalities_trans,test_conf,ckpt_train,"train_best",modality_name=config_name_dataset_force)
-model.comment_log=config_name_dataset_force
+model.comment_log=f"{config_name_dataset_force} "
 
 test_results_train = run_test(
     test_trainer, 
