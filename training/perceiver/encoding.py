@@ -16,28 +16,7 @@ def fourier_encode(x, max_freq, num_bands = 4):
     x = torch.cat((x, orig_x), dim = -1)
     return x
 
-def fourier_encode_xy(x, max_freq, num_bands = 4):
-    _,height,width=x.shape
-    x = x.unsqueeze(-1)
-    device, dtype, orig_x = x.device, x.dtype, x
 
-    
-
-    y_coords, x_coords = torch.meshgrid(
-        torch.linspace(1., max_freq / 2, height, device=device, dtype=dtype),
-        torch.linspace(1., max_freq / 2, width, device=device, dtype=dtype),
-        indexing="ij",
-    )
-
-    scales = torch.linspace(1., max_freq / 2, num_bands, device = device, dtype = dtype)
-    #scales shape: [num_bands]
-    scales = scales[(*((None,) * (len(x.shape) - 1)), Ellipsis)]
-    #scales shape: [len(orig_x.shape),]
-    
-    x = x * scales * pi
-    x = torch.cat([x.sin(), x.cos()], dim = -1)
-    x = torch.cat((x, orig_x), dim = -1)
-    return x
 
 def positional_encoding_2d_to_1d(image, max_freq, num_bands=4):
     """
