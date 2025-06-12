@@ -228,32 +228,21 @@ class modalities_transformations_config:
         resolution_change=1.0
      
         
-        if f_s!=None or f_r!=None:
-            if f_r!=-1 and f_r<1:
-                resolution_change=float(f_r)
-                new_resolution=int(img.shape[1]*float(f_r))
-                img,mask=change_resolution(img=img,mask=mask,target_size=new_resolution)
-        else:
-            if "resolution" in transfos:
-                resolution_change=float(transfos["resolution"])
-                new_resolution=int(img.shape[1]*float(transfos["resolution"]))
-                img,mask=change_resolution(img=img,mask=mask,target_size=new_resolution)
+        if "resolution" in transfos:
+            resolution_change=float(transfos["resolution"])
+            new_resolution=int(img.shape[1]*float(transfos["resolution"]))
+            img,mask=change_resolution(img=img,mask=mask,target_size=new_resolution)
 
         
 
-        if f_s!=None or f_r!=None:
-            if f_s!=-1 and f_s<1:
-                transfo_val=change_size_get_only_coordinates(120,int(120*f_s),center=True)
-                img,mask=change_size(img,mask,transfo_val)
-
-        else:
-            if "size" in transfos:     
-                if type(transfos["size"])==float:
-                    if transfos["size"]<1:
-                        transfo_val=change_size_get_only_coordinates(120,int(120*transfos["size"]),center=True)
-                        img,mask=change_size(img,mask,transfo_val)
-                else:
-                    img,mask=change_size(img,mask,transfos["size"])
+      
+        if "size" in transfos:     
+            if type(transfos["size"])==float:
+                if transfos["size"]<1:
+                    transfo_val=change_size_get_only_coordinates(120,int(120*transfos["size"]),center=True)
+                    img,mask=change_size(img,mask,transfo_val)
+            else:
+                img,mask=change_size(img,mask,transfos["size"])
 
         if "remove"in transfos:
             img,mask=remove_bands(img,mask,self.get_channels_from_froup(transfos["remove"]))
@@ -261,9 +250,7 @@ class modalities_transformations_config:
         if "keep" in transfos:
             img,mask=remove_bands(img,mask,self.get_opposite_channels_from_froup(transfos["keep"]))
 
-        #12 120 120 
-
-       
+    
         
 
         

@@ -20,4 +20,9 @@ conda activate venv
 
 MODEL_NAME=config_test-Perceiver.yaml
 
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" regular
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" Big_r1
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" Big_r2
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" Big_r3
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" Big_r4
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" Big_r5
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" Big_r6

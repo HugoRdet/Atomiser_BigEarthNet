@@ -126,7 +126,8 @@ class CrossAttention(nn.Module):
         heads: int = 8,
         dim_head: int = 64,
         dropout: float = 0.,
-        use_flash: bool = True
+        use_flash: bool = True,
+        return_attention: bool = False  # Add flag to control attention return
     ):
         super().__init__()
         context_dim = context_dim or query_dim
@@ -134,6 +135,7 @@ class CrossAttention(nn.Module):
         self.heads = heads
         self.scale = dim_head ** -0.5
         self.use_flash = use_flash and hasattr(F, "scaled_dot_product_attention")
+        self.return_attention = return_attention
 
         self.to_q = nn.Linear(query_dim, inner, bias=False)
         self.to_kv = nn.Linear(context_dim, inner * 2, bias=False)
@@ -141,6 +143,58 @@ class CrossAttention(nn.Module):
             nn.Linear(inner, query_dim),
             nn.Dropout(dropout)
         )
+
+    def forward(self, x, context, mask=None):
+        # x:       (B, Nq, query_dim)
+        # context: (B, Nk, context_dim)
+        B, Nq, _ = x.shape
+        Nk = context.shape[1]
+
+        q = self.to_q(x)                 # (B, Nq, inner)
+        kv = self.to_kv(context)         # (B, Nk, 2·inner)
+        k, v = kv.chunk(2, dim=-1)
+
+        q = rearrange(q, "b n (h d) -> (b h) n d", h=self.heads)
+        k = rearrange(k, "b n (h d) -> (b h) n d", h=self.heads)
+        v = rearrange(v, "b n (h d) -> (b h) n d", h=self.heads)
+
+        attn_weights = None
+        
+        if self.use_flash and not self.return_attention:
+            # Flash attention - can't return attention weights
+            attn_mask = None
+            if exists(mask):
+                m = mask.unsqueeze(1).expand(-1, Nq, -1)
+                attn_mask = repeat(m, "b i j -> (b h) i j", h=self.heads)
+            out = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=attn_mask,
+                dropout_p=self.to_out[1].p,
+                is_causal=False
+            )
+        else:
+            # Manual computation - can return attention weights
+            sim = einsum("b i d, b j d -> b i j", q, k) * self.scale
+            if exists(mask):
+                m = mask.unsqueeze(1).expand(-1, Nq, -1)
+                m = repeat(m, "b i j -> (b h) i j", h=self.heads)
+                sim = sim.masked_fill(~m, float("-inf"))
+            
+            attn_weights = sim.softmax(dim=-1)  # Store attention weights
+            
+            # Apply dropout to attention weights, not after softmax
+            if self.training and self.to_out[1].p > 0:
+                attn_weights = F.dropout(attn_weights, p=self.to_out[1].p, training=self.training)
+            
+            out = einsum("b i j, b j d -> b i d", attn_weights, v)
+
+        out = rearrange(out, "(b h) n d -> b n (h d)", h=self.heads)
+        output = self.to_out[0](out)
+        
+        if self.return_attention and attn_weights is not None:
+            return output, attn_weights
+        else:
+            return output
 
     def forward(self, x, context, mask=None):
         # x:       (B, Nq, query_dim)

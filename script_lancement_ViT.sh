@@ -20,4 +20,9 @@ conda activate venv
 
 MODEL_NAME=config_test-ViT_XS.yaml
 
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" regular
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_1
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_2
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_3
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" test_1
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" test_2
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" test_3

@@ -12,20 +12,28 @@ conda activate venv
 
 
 
+MODEL_NAME=config_test-Atomiser_Atos.yaml
+
+
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_8
+
+
+MODEL_NAME=config_test-ViT_XS.yaml
+
+
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_8
+
+
+MODEL_NAME=config_test-ResNet50.yaml
+
+
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_8
+
+MODEL_NAME=config_test-Perceiver.yaml
+
+
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_8
+
 MODEL_NAME=config_test-ScaleMAE.yaml
 
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_1
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_2
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_3
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_4
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_5
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_6
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" test_1
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" test_2
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" test_3
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" train_1
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" train_2
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" train_3
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_1
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_2
-#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_3
+sh Eval_modalities.sh "$EXPERIMENT_NAME" "$MODEL_NAME" add_8

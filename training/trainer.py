@@ -26,7 +26,7 @@ import torchmetrics
 import warnings
 import wandb
 from transformers import get_cosine_schedule_with_warmup
-
+import seaborn as sns
 
 #BigEarthNet...
 warnings.filterwarnings("ignore", message="No positive samples found in target, recall is undefined. Setting recall to one for all thresholds.")
@@ -145,10 +145,16 @@ class Model(pl.LightningModule):
             return self.encoder(x,mask,resolution,training=training)
         else:
             if "Perceiver" in self.config["encoder"]:
-                return self.encoder(x,mask=mask)
+                tmp_resolutions=20/resolution#self.resolutions/resolution
+                return self.encoder(x,res=tmp_resolutions,mask=mask)
+            
             elif "ScaleMAE" in self.config["encoder"]:
                 tmp_resolutions=20/resolution#self.resolutions/resolution
                 return self.encoder(x,res=tmp_resolutions)
+            
+      
+                
+            
             return self.encoder(x)
                 
             
@@ -231,16 +237,25 @@ class Model(pl.LightningModule):
         
         
     
-        
-    def on_test_epoch_start(self):
-        super().on_test_epoch_start()
+
+
+    
         
     def test_step(self, batch, batch_idx):
-        img, mask,resolution, labels, _ = batch
-        y_hat = self.forward(img,mask,resolution,training=False)
-
+        img, mask, resolution, labels, _ = batch
+        y_hat = self.forward(img, mask, resolution, training=False)
+        
+        # Update metrics
         self.metric_test_accuracy_per_class.update(y_hat, labels.to(torch.int))
         self.metric_test_AP_per_class.update(y_hat, labels.to(torch.int))
+        
+        # Visualize attention for the first 10 batches only
+        if batch_idx < 10:
+            # Pass the current global step and batch_idx for better tracking
+            current_step = self.trainer.global_step if hasattr(self.trainer, 'global_step') else batch_idx
+            self.visualize_attention(img, mask, resolution, step=current_step, batch_id=batch_idx)
+        
+        return y_hat
 
     def on_test_epoch_end(self):
         modality = self.trainer.datamodule.test_dataset.modality_mode
@@ -323,6 +338,9 @@ class Model(pl.LightningModule):
             for idx in range(self.num_classes):
                 class_name = self.labels_idx[str(int(idx))]
                 self.log(f"{mode}_{class_name}_AP", ap[idx].item(), on_step=False, on_epoch=True, logger=True, sync_dist=True)
+
+
+    
     
         
     def save_model(self, name=None):

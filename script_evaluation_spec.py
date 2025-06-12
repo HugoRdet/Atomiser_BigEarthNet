@@ -286,7 +286,15 @@ def latest_ckpt_for(prefix: str):
     return max(matches, key=os.path.getmtime)
 
 # 1) Best model according to val_mod_train AP
-ckpt_train = latest_ckpt_for(config_model["encoder"])
+prefix=config_model["encoder"]+"xp"
+
+if config_model["encoder"]=="ScaleMAE":
+    prefix=prefix=config_model["encoder"]
+
+if config_model["encoder"]=="Atomiser":
+    prefix=config_model["encoder"]+"xp_20250523_085218_32"
+    
+ckpt_train = latest_ckpt_for(prefix)
 print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 
 

@@ -31,6 +31,52 @@ def cache_fn(f):
         return result
     return cached_fn
 
+def fourier_encode_2d_from_coords(coords, max_freq=10.0, num_bands=4):
+    """
+    Args:
+        coords: Tensor of shape (H, W, 2) with [x, y] coordinates
+    Returns:
+        Tensor of shape (H, W, 2 + 2*num_bands*2)
+    """
+    device, dtype = coords.device, coords.dtype
+    freq_bands = torch.linspace(1.0, max_freq / 2, num_bands, device=device, dtype=dtype)
+    
+    # coords: (H, W, 2), unsqueeze → (H, W, 2, 1)
+    scaled = coords.unsqueeze(-1) * freq_bands * pi  # (H, W, 2, num_bands)
+
+    # Apply sin and cos → (H, W, 2, 2*num_bands), then flatten → (H, W, 4*num_bands)
+    enc = torch.cat([scaled.sin(), scaled.cos()], dim=-1).flatten(-2)
+
+    return torch.cat([coords, enc], dim=-1)  # (H, W, 2 + 4*num_bands)
+
+def fourier_encode_2D_batch_variable_res(images, res, max_freq, num_bands=4):
+    """
+    Fourier encode 2D positions with resolution-aware scaling per image.
+    Args:
+        images: (B, C, H, W)
+        res: (B,) list or tensor of resolution factors (e.g., 1.0 → 120px)
+    Returns:
+        Tensor: (B, C + pos_dim, H, W)
+    """
+    B, H, W, C = images.shape
+    device, dtype = images.device, images.dtype
+    encoded = []
+
+    for i in range(B):
+        # Compute resolution-aware spatial grid
+        scaling = 120 * res[i]
+        x_coords = torch.linspace(-scaling/2, scaling/2, W, device=device, dtype=dtype)
+        y_coords = torch.linspace(-scaling/2, scaling/2, H, device=device, dtype=dtype)
+        mesh = torch.stack(torch.meshgrid(y_coords, x_coords, indexing='ij'), dim=-1)  # (H, W, 2)
+
+        # Encode coordinates
+        pos_enc = fourier_encode_2d_from_coords(mesh, max_freq, num_bands)  # (H, W, pos_dim)
+        
+        
+        encoded.append(pos_enc)
+
+    return torch.stack(encoded)  # (B, C + pos_dim, H, W)
+
 def fourier_encode(x, max_freq, num_bands = 4):
     x = x.unsqueeze(-1)
     device, dtype, orig_x = x.device, x.dtype, x
@@ -174,6 +220,7 @@ class Perceiver(pl.LightningModule):
         self,
         data,
         mask = None,
+        res=None,
         return_embeddings = False
     ):
         mask=einops.reduce(mask,"b c h w  -> b h w","min")
@@ -184,15 +231,23 @@ class Perceiver(pl.LightningModule):
         assert len(axis) == self.input_axis, 'input data must have the right number of axis'
 
         if self.fourier_encode_data:
+       
             # calculate fourier encoded positions in the range of [-1, 1], for all axis
+            if res!=None:
+       
+                enc_pos=fourier_encode_2D_batch_variable_res(data, res, self.max_freq, num_bands=self.num_freq_bands)
+                
+                data= torch.cat((data, enc_pos), dim = -1)
+                
+            else:
 
-            axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device, dtype=dtype), axis))
-            pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
-            enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
-            enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
-            enc_pos = repeat(enc_pos, '... -> b ...', b = b)
-
-            data = torch.cat((data, enc_pos), dim = -1)
+                axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device, dtype=dtype), axis))
+                pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
+                enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
+                enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
+                enc_pos = repeat(enc_pos, '... -> b ...', b = b)
+                
+                data = torch.cat((data, enc_pos), dim = -1)
 
         # concat to channels of data and flatten axis
 

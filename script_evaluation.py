@@ -103,7 +103,7 @@ def setup_wandb(config_model, xp_name, run_id=None):
                 id=run_id if run_id else None,
                 resume="allow" if run_id else None,
                 name=config_model['encoder'],
-                project="Atomizer_BigEarthNet",
+                project="Atomizer_BigEarthNet_ayaa",
                 config=config_model,
                 tags=["evaluation", xp_name, config_model['encoder']],
                 settings=wandb.Settings(
@@ -113,7 +113,7 @@ def setup_wandb(config_model, xp_name, run_id=None):
             )
             
             # Create logger with the run
-            logger = WandbLogger(project="Atomizer_BigEarthNet", experiment=run)
+            logger = WandbLogger(project="Atomizer_BigEarthNet_ayaa", experiment=run)
             
             print("W&B logging successfully initialized")
             return logger
@@ -199,10 +199,9 @@ def latest_ckpt_for(prefix: str):
 
 # 1) Best model according to val_mod_train AP
 #prefix
-prefix=config_model["encoder"]
-if prefix=="Atomiser":
-    prefix="Atomiserxp_20250516_234544"
-ckpt_train = latest_ckpt_for(config_model["encoder"])
+prefix=config_model["encoder"]+"xp"
+
+ckpt_train = latest_ckpt_for(prefix)
 print("→ Testing on ckpt (val_mod_train):", ckpt_train)
 
 # 2) Best model according to val_mod_val AP
