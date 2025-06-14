@@ -250,10 +250,11 @@ class Model(pl.LightningModule):
         self.metric_test_AP_per_class.update(y_hat, labels.to(torch.int))
         
         # Visualize attention for the first 10 batches only
-        if batch_idx < 10:
+        max_batch=256
+        if batch_idx < max_batch:
             # Pass the current global step and batch_idx for better tracking
             current_step = self.trainer.global_step if hasattr(self.trainer, 'global_step') else batch_idx
-            self.visualize_attention(img, mask, resolution, step=current_step, batch_id=batch_idx)
+            self.encoder.visualize_attention(img, mask, resolution, step=current_step, batch_id=batch_idx,MAX_BB=max_batch)
         
         return y_hat
 

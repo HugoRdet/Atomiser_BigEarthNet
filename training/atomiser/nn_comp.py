@@ -126,16 +126,21 @@ class CrossAttention(nn.Module):
         heads: int = 8,
         dim_head: int = 64,
         dropout: float = 0.,
-        use_flash: bool = True,
-        return_attention: bool = False  # Add flag to control attention return
+        use_flash: bool =False,
+        return_attention: bool = False,
+        temperature: float = 10.0    # new temperature parameter
     ):
         super().__init__()
         context_dim = context_dim or query_dim
         inner = dim_head * heads
         self.heads = heads
+        # original scale
         self.scale = dim_head ** -0.5
         self.use_flash = use_flash and hasattr(F, "scaled_dot_product_attention")
         self.return_attention = return_attention
+        # new temperature
+        assert temperature > 0, "Temperature must be > 0"
+        self.temperature = temperature
 
         self.to_q = nn.Linear(query_dim, inner, bias=False)
         self.to_kv = nn.Linear(context_dim, inner * 2, bias=False)
@@ -145,23 +150,22 @@ class CrossAttention(nn.Module):
         )
 
     def forward(self, x, context, mask=None):
-        # x:       (B, Nq, query_dim)
-        # context: (B, Nk, context_dim)
         B, Nq, _ = x.shape
         Nk = context.shape[1]
 
-        q = self.to_q(x)                 # (B, Nq, inner)
-        kv = self.to_kv(context)         # (B, Nk, 2·inner)
+        q = self.to_q(x)                 
+        kv = self.to_kv(context)         
         k, v = kv.chunk(2, dim=-1)
 
+        # split heads
         q = rearrange(q, "b n (h d) -> (b h) n d", h=self.heads)
         k = rearrange(k, "b n (h d) -> (b h) n d", h=self.heads)
         v = rearrange(v, "b n (h d) -> (b h) n d", h=self.heads)
 
         attn_weights = None
-        
+
         if self.use_flash and not self.return_attention:
-            # Flash attention - can't return attention weights
+            # FlashAttention path (no access to raw weights)
             attn_mask = None
             if exists(mask):
                 m = mask.unsqueeze(1).expand(-1, Nq, -1)
@@ -173,67 +177,30 @@ class CrossAttention(nn.Module):
                 is_causal=False
             )
         else:
-            # Manual computation - can return attention weights
+            # manual attention so we can apply temperature and return weights
             sim = einsum("b i d, b j d -> b i j", q, k) * self.scale
+            # apply temperature
+            sim = sim / self.temperature
+
             if exists(mask):
                 m = mask.unsqueeze(1).expand(-1, Nq, -1)
                 m = repeat(m, "b i j -> (b h) i j", h=self.heads)
                 sim = sim.masked_fill(~m, float("-inf"))
-            
-            attn_weights = sim.softmax(dim=-1)  # Store attention weights
-            
-            # Apply dropout to attention weights, not after softmax
+
+            attn_weights = sim.softmax(dim=-1)
+            # dropout on weights
             if self.training and self.to_out[1].p > 0:
-                attn_weights = F.dropout(attn_weights, p=self.to_out[1].p, training=self.training)
-            
+                attn_weights = F.dropout(attn_weights, p=self.to_out[1].p, training=True)
+
             out = einsum("b i j, b j d -> b i d", attn_weights, v)
 
+        # re-combine heads
         out = rearrange(out, "(b h) n d -> b n (h d)", h=self.heads)
-        output = self.to_out[0](out)
-        
+        result = self.to_out[0](out)
+
         if self.return_attention and attn_weights is not None:
-            return output, attn_weights
-        else:
-            return output
-
-    def forward(self, x, context, mask=None):
-        # x:       (B, Nq, query_dim)
-        # context: (B, Nk, context_dim)
-        B, Nq, _ = x.shape
-        Nk = context.shape[1]
-
-        q = self.to_q(x)                 # (B, Nq, inner)
-        kv = self.to_kv(context)         # (B, Nk, 2·inner)
-        k, v = kv.chunk(2, dim=-1)
-
-        q = rearrange(q, "b n (h d) -> (b h) n d", h=self.heads)
-        k = rearrange(k, "b n (h d) -> (b h) n d", h=self.heads)
-        v = rearrange(v, "b n (h d) -> (b h) n d", h=self.heads)
-
-        if self.use_flash:
-            attn_mask = None
-            if exists(mask):
-                # mask: (B, Nk) -> (B, Nq, Nk)
-                m = mask.unsqueeze(1).expand(-1, Nq, -1)
-                attn_mask = repeat(m, "b i j -> (b h) i j", h=self.heads)
-            out = F.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=attn_mask,
-                dropout_p=self.to_out[1].p,
-                is_causal=False
-            )
-        else:
-            sim = einsum("b i d, b j d -> b i j", q, k) * self.scale
-            if exists(mask):
-                m = mask.unsqueeze(1).expand(-1, Nq, -1)
-                m = repeat(m, "b i j -> (b h) i j", h=self.heads)
-                sim = sim.masked_fill(~m, float("-inf"))
-            attn = sim.softmax(dim=-1)
-            attn = self.to_out[1](attn)
-            out = einsum("b i j, b j d -> b i d", attn, v)
-
-        out = rearrange(out, "(b h) n d -> b n (h d)", h=self.heads)
-        return self.to_out[0](out)
+            return result, attn_weights
+        return result
 
 
 class LatentAttentionPooling(nn.Module):
@@ -253,8 +220,7 @@ class LatentAttentionPooling(nn.Module):
         q = repeat(self.query, '1 1 d -> b 1 d', b=b)
         out = self.cross(q, context=x, mask=None)
         return out.squeeze(1)
-
-
+    
 class LinearAttention(nn.Module):
     def __init__(self, dim: int, heads: int = 4, dim_head: int = 64, dropout: float = 0.):
         super().__init__()

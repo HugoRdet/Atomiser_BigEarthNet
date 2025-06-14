@@ -2,7 +2,7 @@ from .utils import*
 from .nn_comp import*
 from .encoding import*
 import matplotlib.pyplot as plt
-
+import numpy as np
 
 import torch
 from torch import nn, einsum
@@ -198,20 +198,20 @@ class Atomiser(pl.LightningModule):
 
         t, m = tokens, tokens_mask
         
-        if self.masking > 0 and training:
-            t, m, idx = pruning(t, m, self.masking)
+        
 
         # cross & self layers
         for (cross_attn, cross_ff, self_attns) in self.layers:
             # optionally prune
-            
+            if self.masking > 0 and training:
+                t, m, idx = pruning(t, m, self.masking)
             # cross-attn
             x = cross_attn(x, context=t, mask=m) + x
             x = cross_ff(x) + x
             # restore tokens if pruned
-            #if self.masking > 0 and training:
-            #    tokens[:, idx] = t
-            #    tokens_mask[:, idx] = m
+            if self.masking > 0 and training:
+                tokens[:, idx] = t
+                tokens_mask[:, idx] = m
             # self-attn blocks
             for (sa, ff) in self_attns:
                 x = sa(x) + x
@@ -221,199 +221,199 @@ class Atomiser(pl.LightningModule):
         # classifier
         return self.to_logits(x)
     
-    def visualize_attention(self, data, mask=None, resolution=None, step=None, batch_id=None):
-        """
-        Extracts and plots cross-attention WEIGHTS for attention sink analysis.
-        Logs to wandb instead of showing plots.
-        
-        Args:
-            data: Input data
-            mask: Attention mask
-            resolution: Resolution parameter
-            step: Training step for logging
-            batch_id: Batch ID for tracking individual batches (0-9 for first 10 batches)
-        """
-        
-        # Only visualize for the first 10 batches
-        if batch_id is not None and batch_id >= 10:
+
+    def visualize_attention(self, data, mask=None, resolution=None, step=None, batch_id=None, MAX_BB=128):
+    
+
+        N_LAYERS = len(self.layers)
+        TOPK     = 100
+        COLORS   = sns.color_palette("tab10", n_colors=N_LAYERS)
+
+        # only process first MAX_BB batches
+        if batch_id is None or batch_id < 0 or batch_id >= MAX_BB:
             return
-        
-        # Temporarily enable attention return for cross-attention layers
-        cross_attn_modules = []
-        original_flags = []
-        original_flash_flags = []
-        
-        for layer in self.layers:  # self.layers exists in Atomiser
-            cross_attn = layer[0].fn  # CrossAttention inside PreNorm
-            cross_attn_modules.append(cross_attn)
-            original_flags.append(getattr(cross_attn, 'return_attention', False))
-            original_flash_flags.append(cross_attn.use_flash)
-            cross_attn.return_attention = True
-            cross_attn.use_flash = False  # Disable flash attention to get weights
-        
-        # Store original training mode and set to eval
-        was_training = self.training
+
+        # initialize accumulators once
+        if not hasattr(self, "_layer_concs"):
+            self._layer_concs  = [[] for _ in range(N_LAYERS)]
+            self._layer_ents   = [[] for _ in range(N_LAYERS)]
+            self._overlaps     = []
+            self._persistence  = []
+
+        # turn on return_attention
+        cross_mods, orig_ret, orig_flash = [], [], []
+        for layer in self.layers:
+            cross = layer[0].fn
+            cross_mods.append(cross)
+            orig_ret.append(cross.return_attention)
+            orig_flash.append(cross.use_flash)
+            cross.return_attention = True
+            cross.use_flash         = False
+
+        was_train = self.training
         self.eval()
-        attention_scores = []
-        
+
+        # forward and capture all layers' attentions
+        all_attns = []
         try:
             with torch.no_grad():
-                if len(data.shape) == 3:
-                    processed_tokens = data
-                    tokens_mask = mask
+                if data.ndim == 3:
+                    t, m = data, mask
                 else:
-                    processed_tokens, tokens_mask = self.transform.process_data(data, mask, resolution)
+                    t, m = self.transform.process_data(data, mask, resolution)
 
-                b = processed_tokens.shape[0]
+                b = t.shape[0]
                 x = repeat(self.latents, 'n d -> b n d', b=b)
-                tokens_mask = tokens_mask.to(torch.bool)
-                processed_tokens = processed_tokens.masked_fill_(~tokens_mask.unsqueeze(-1), 0.)
-
-                t, m = processed_tokens, tokens_mask
-                
+                m = m.to(torch.bool)
+                t = t.masked_fill_(~m.unsqueeze(-1), 0.)
                 if self.masking > 0:
-                    t, m, idx = pruning(t, m, self.masking)
+                    t, m, _ = pruning(t, m, self.masking)
 
-                # Process layers and capture attention from first cross-attention
-                for i, (cross_attn, cross_ff, self_attns) in enumerate(self.layers):
-                    # Cross-attention with attention capture
-                    if hasattr(cross_attn.fn, 'return_attention') and cross_attn.fn.return_attention:
-                        x_out, attn = cross_attn(x, context=t, mask=m)
-                        if i == 0:  # Only capture first layer
-                            attention_scores.append(attn.detach().cpu())
-                        x = x_out + x
+                for cross, ff, selfs in self.layers:
+                    out = cross(x, context=t, mask=m)
+                    if isinstance(out, tuple):
+                        x, attn = out
+                        all_attns.append(attn.cpu())
                     else:
-                        x = cross_attn(x, context=t, mask=m) + x
-                    
-                    x = cross_ff(x) + x
-                    
-                    # Self-attention blocks
-                    for (sa, ff) in self_attns:
+                        x = out
+                    x = ff(x) + x
+                    for sa, ff2 in selfs:
                         x = sa(x) + x
-                        x = ff(x) + x
-
+                        x = ff2(x) + x
         finally:
-            # Restore original settings
-            for cross_attn, original_flag, original_flash in zip(cross_attn_modules, original_flags, original_flash_flags):
-                cross_attn.return_attention = original_flag
-                cross_attn.use_flash = original_flash
-            
-            # Restore training mode
-            if was_training:
+            for mod, ret, fl in zip(cross_mods, orig_ret, orig_flash):
+                mod.return_attention = ret
+                mod.use_flash         = fl
+            if was_train:
                 self.train()
 
-        if attention_scores:
-            # Process attention weights
-            attn = attention_scores[0]  # [B*heads, Nq, Nk]
-            
-            # Since batch_size=1, we have heads attention matrices
-            # attn shape: [heads, Nq, Nk]
-            attn_mean = attn.mean(dim=0)  # [Nq, Nk] averaged over heads
-            
-            # Create batch-specific identifier for logging
-            batch_suffix = f"_batch_{batch_id}" if batch_id is not None else ""
-            step_suffix = f"_step_{step}" if step is not None else ""
-            log_suffix = f"{batch_suffix}{step_suffix}"
-            
-            # Create figures for wandb
-            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-            
-            # 1. Full attention heatmap
-            sns.heatmap(attn_mean.numpy(), cmap="viridis", ax=axes[0,0])
-            axes[0,0].set_title(f"Cross-Attention Weights (Batch {batch_id})")
-            axes[0,0].set_xlabel("Input Tokens (context)")
-            axes[0,0].set_ylabel("Latent Tokens (query)")
-            
-            # 2. Attention weight distribution per input token (potential sinks)
-            token_attention_sum = attn_mean.sum(dim=0)  # Sum over all queries
-            axes[0,1].bar(range(len(token_attention_sum)), token_attention_sum.numpy())
-            axes[0,1].set_title(f"Total Attention per Input Token (Batch {batch_id})")
-            axes[0,1].set_xlabel("Input Token Index")
-            axes[0,1].set_ylabel("Total Attention Weight")
-            
-            # 3. Max attention weight per input token
-            max_attention_per_token = attn_mean.max(dim=0)[0]
-            axes[1,0].bar(range(len(max_attention_per_token)), max_attention_per_token.numpy())
-            axes[1,0].set_title(f"Max Attention Weight per Input Token (Batch {batch_id})")
-            axes[1,0].set_xlabel("Input Token Index") 
-            axes[1,0].set_ylabel("Max Attention Weight")
-            
-            # 4. Attention entropy per query (diversity measure)
-            attn_entropy = -(attn_mean * torch.log(attn_mean + 1e-8)).sum(dim=1)
-            axes[1,1].plot(attn_entropy.numpy())
-            axes[1,1].set_title(f"Attention Entropy per Query (Batch {batch_id})")
-            axes[1,1].set_xlabel("Query Index")
-            axes[1,1].set_ylabel("Entropy")
-            
-            plt.tight_layout()
-            
-            # Log to wandb with batch-specific naming
-            wandb.log({
-                f"attention/cross_attention_analysis{log_suffix}": wandb.Image(fig),
-            })
-            
-            # Also log individual attention heads for this batch
-            if batch_id is not None and batch_id < 5:  # Only for first 5 batches to avoid too many plots
-                fig_heads, axes_heads = plt.subplots(2, 4, figsize=(20, 10))
-                axes_heads = axes_heads.flatten()
-                
-                num_heads = min(8, attn.shape[0])  # Show up to 8 heads
-                for head_idx in range(num_heads):
-                    if head_idx < len(axes_heads):
-                        sns.heatmap(attn[head_idx].numpy(), cmap="viridis", ax=axes_heads[head_idx])
-                        axes_heads[head_idx].set_title(f"Head {head_idx}")
-                        axes_heads[head_idx].set_xlabel("Input Tokens")
-                        axes_heads[head_idx].set_ylabel("Latent Tokens")
-                
-                # Hide unused subplots
-                for head_idx in range(num_heads, len(axes_heads)):
-                    axes_heads[head_idx].set_visible(False)
-                
-                plt.suptitle(f"Individual Attention Heads - Batch {batch_id}")
-                plt.tight_layout()
-                
-                wandb.log({
-                    f"attention/individual_heads{log_suffix}": wandb.Image(fig_heads),
-                })
-                plt.close(fig_heads)
-            
-            # Close the main figure to free memory
-            plt.close(fig)
-            
-            # Log attention statistics as scalars with batch-specific naming
-            top_5_sinks = torch.topk(token_attention_sum, min(5, len(token_attention_sum))).indices.tolist()
-            attention_concentration = token_attention_sum.max().item() / token_attention_sum.mean().item()
-            mean_entropy = attn_entropy.mean().item()
-            
-            wandb.log({
-                f"attention/concentration_ratio{log_suffix}": attention_concentration,
-                f"attention/mean_entropy{log_suffix}": mean_entropy,
-                f"attention/max_attention_weight{log_suffix}": token_attention_sum.max().item(),
-                f"attention/min_attention_weight{log_suffix}": token_attention_sum.min().item(),
-            })
-            
-            # Log top sink tokens as a table with batch information
-            sink_data = []
-            for i, token_idx in enumerate(top_5_sinks):
-                sink_data.append([
-                    batch_id if batch_id is not None else "Unknown",  # Batch ID
-                    i + 1,  # Rank
-                    token_idx,  # Token index
-                    token_attention_sum[token_idx].item(),  # Total attention
-                    max_attention_per_token[token_idx].item()  # Max attention
-                ])
-            
-            sink_table = wandb.Table(
-                columns=["Batch_ID", "Rank", "Token_Index", "Total_Attention", "Max_Attention"],
-                data=sink_data
-            )
-            wandb.log({f"attention/top_sink_tokens{log_suffix}": sink_table})
-            
-            print(f"✅ Attention analysis for batch {batch_id} logged to wandb")
-            print(f"Top 5 attention sink tokens for batch {batch_id}: {top_5_sinks}")
-            print(f"Attention concentration ratio: {attention_concentration:.3f}")
-            print(f"Mean attention entropy: {mean_entropy:.3f}")
-            
-        else:
-            print(f"❌ No attention scores captured for batch {batch_id}!")
-            wandb.log({f"attention/capture_failed{log_suffix}": 1})
+        if not all_attns:
+            return
+
+        # per-layer conc & entropy
+        topk_sets = []
+        for l, attn in enumerate(all_attns):
+            m = attn.mean(dim=0)                     # [Nq,Nk]
+            sums = m.sum(dim=0)                      # [Nk]
+            ent  = -(m * torch.log(m + 1e-8)).sum(dim=1)  # [Nq]
+
+            conc = (sums.max() / sums.mean()).item()
+            avg_ent = ent.mean().item()
+            self._layer_concs[l].append(conc)
+            self._layer_ents[l].append(avg_ent)
+
+            topk = torch.topk(sums, TOPK).indices.tolist()
+            topk_sets.append(set(topk))
+
+        # overlap & persistence
+        overlap = torch.zeros((N_LAYERS, N_LAYERS))
+        for i in range(N_LAYERS):
+            for j in range(N_LAYERS):
+                inter = topk_sets[i] & topk_sets[j]
+                overlap[i, j] = len(inter) / TOPK
+        self._overlaps.append(overlap)
+        common = set.intersection(*topk_sets)
+        self._persistence.append(len(common))
+
+        # on final batch, plot everything
+        if batch_id == MAX_BB - 1:
+            # 1) Concentration vs. Layer
+            fig1, ax1 = plt.subplots(figsize=(8, 4))
+            for l in range(N_LAYERS):
+                ax1.scatter(
+                    [l]*len(self._layer_concs[l]),
+                    self._layer_concs[l],
+                    color=COLORS[l],
+                    label=f"Layer {l}",
+                    alpha=0.7
+                )
+            ax1.set_xticks(range(N_LAYERS))
+            ax1.set(title="Concentration Ratio by Layer",
+                    xlabel="Layer", ylabel="Concentration")
+            ax1.legend(ncol=4, bbox_to_anchor=(1,1))
+            wandb.log({"attention/conc_vs_layer": wandb.Image(fig1)})
+            plt.close(fig1)
+
+            # 2) Concentration vs. Entropy by Layer
+            fig2, ax2 = plt.subplots(figsize=(6,6))
+            for l in range(N_LAYERS):
+                ax2.scatter(
+                    self._layer_concs[l],
+                    self._layer_ents[l],
+                    color=COLORS[l],
+                    label=f"Layer {l}",
+                    alpha=0.7
+                )
+            ax2.set(title="Concentration vs. Entropy by Layer",
+                    xlabel="Concentration", ylabel="Entropy")
+            ax2.legend(ncol=2, bbox_to_anchor=(1,1))
+            wandb.log({"attention/conc_vs_ent_by_layer": wandb.Image(fig2)})
+            plt.close(fig2)
+
+            # 3) Average Overlap Matrix
+            mean_ov = torch.stack(self._overlaps).mean(dim=0)
+            fig3, ax3 = plt.subplots(figsize=(6,6))
+            sns.heatmap(mean_ov.numpy(), annot=True, cmap="viridis", ax=ax3)
+            ax3.set(title="Avg Top-K Overlap Across Layers")
+            wandb.log({"attention/avg_overlap_matrix": wandb.Image(fig3)})
+            plt.close(fig3)
+
+            # 4) Persistence Histogram
+            fig4, ax4 = plt.subplots()
+            sns.histplot(self._persistence,
+                        bins=range(0, TOPK+2),
+                        discrete=True,
+                        ax=ax4)
+            ax4.set(title="Persistence of Top-K Tokens",
+                    xlabel="# tokens in all layers",
+                    ylabel="Example Count")
+            wandb.log({"attention/persistence_hist": wandb.Image(fig4)})
+            plt.close(fig4)
+
+            # 5a) Concentration Distribution by Layer
+            fig5, ax5 = plt.subplots()
+            all_concs = sum(self._layer_concs, [])
+            bins_c   = np.linspace(min(all_concs), max(all_concs), MAX_BB)
+            for l in range(N_LAYERS):
+                sns.histplot(
+                    self._layer_concs[l],
+                    bins=bins_c,
+                    ax=ax5,
+                    color=COLORS[l],
+                    label=f"Layer {l}",
+                    alpha=0.6,
+                    kde=False
+                )
+            ax5.set(title="Concentration Distribution by Layer",
+                    xlabel="Concentration Ratio", ylabel="Count")
+            ax5.legend(ncol=2, bbox_to_anchor=(1,1))
+            wandb.log({"attention/dist_all_conc_by_layer": wandb.Image(fig5)})
+            plt.close(fig5)
+
+            # 5b) Entropy Distribution by Layer
+            fig6, ax6 = plt.subplots()
+            all_ents = sum(self._layer_ents, [])
+            bins_e   = np.linspace(min(all_ents), max(all_ents), MAX_BB)
+            for l in range(N_LAYERS):
+                sns.histplot(
+                    self._layer_ents[l],
+                    bins=bins_e,
+                    ax=ax6,
+                    color=COLORS[l],
+                    label=f"Layer {l}",
+                    alpha=0.6,
+                    kde=False
+                )
+            ax6.set(title="Entropy Distribution by Layer",
+                    xlabel="Mean Attention Entropy", ylabel="Count")
+            ax6.legend(ncol=2, bbox_to_anchor=(1,1))
+            wandb.log({"attention/dist_all_ent_by_layer": wandb.Image(fig6)})
+            plt.close(fig6)
+
+        # restore cross-attn flags
+        for layer in self.layers:
+            cross = layer[0].fn
+            cross.return_attention = False
+            cross.use_flash = True
+
+        
