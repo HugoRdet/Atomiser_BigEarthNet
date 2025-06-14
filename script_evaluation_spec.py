@@ -315,7 +315,6 @@ test_trainer = Trainer(
     devices=[1],
     logger=wandb_logger,
     precision="16-mixed",
-    
 )
 
 # Test with the "train‐best" checkpoint
