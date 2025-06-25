@@ -128,7 +128,6 @@ class CrossAttention(nn.Module):
         dropout: float = 0.,
         use_flash: bool =False,
         return_attention: bool = False,
-        temperature: float = 10.0    # new temperature parameter
     ):
         super().__init__()
         context_dim = context_dim or query_dim
@@ -137,10 +136,9 @@ class CrossAttention(nn.Module):
         # original scale
         self.scale = dim_head ** -0.5
         self.use_flash = use_flash and hasattr(F, "scaled_dot_product_attention")
-        self.return_attention = return_attention
+        #self.return_attention = return_attention
         # new temperature
-        assert temperature > 0, "Temperature must be > 0"
-        self.temperature = temperature
+
 
         self.to_q = nn.Linear(query_dim, inner, bias=False)
         self.to_kv = nn.Linear(context_dim, inner * 2, bias=False)
@@ -149,58 +147,62 @@ class CrossAttention(nn.Module):
             nn.Dropout(dropout)
         )
 
+        self.to_gate_G1 = nn.Linear(query_dim, query_dim)  # W_θ
+        self.to_gate_G2 = nn.Linear(context_dim, inner)  # W_θ
+        self.to_gate_G3 = nn.Linear(context_dim, inner)  # W_θ
+        self.to_gate_G4 = nn.Linear(query_dim, inner)  # W_θ
+
+        self.gate_act = nn.Sigmoid()
+
+        
+      
+
     def forward(self, x, context, mask=None):
         B, Nq, _ = x.shape
         Nk = context.shape[1]
 
-        q = self.to_q(x)                 
+        q = self.to_q(x)  
+        G4 = self.gate_act( self.to_gate_G4(x) )
+        q= q * G4
+
         kv = self.to_kv(context)         
         k, v = kv.chunk(2, dim=-1)
+        G2 = self.gate_act( self.to_gate_G2(context) )  
+        G3 = self.gate_act( self.to_gate_G3(context) )  
+        k= k * G3
+        v= v * G2
 
         # split heads
         q = rearrange(q, "b n (h d) -> (b h) n d", h=self.heads)
         k = rearrange(k, "b n (h d) -> (b h) n d", h=self.heads)
         v = rearrange(v, "b n (h d) -> (b h) n d", h=self.heads)
 
-        attn_weights = None
+        #attn_weights = None
 
-        if self.use_flash and not self.return_attention:
-            # FlashAttention path (no access to raw weights)
-            attn_mask = None
-            if exists(mask):
-                m = mask.unsqueeze(1).expand(-1, Nq, -1)
-                attn_mask = repeat(m, "b i j -> (b h) i j", h=self.heads)
-            out = F.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=attn_mask,
-                dropout_p=self.to_out[1].p,
-                is_causal=False
-            )
-        else:
-            # manual attention so we can apply temperature and return weights
-            sim = einsum("b i d, b j d -> b i j", q, k) * self.scale
-            # apply temperature
-            sim = sim / self.temperature
-
-            if exists(mask):
-                m = mask.unsqueeze(1).expand(-1, Nq, -1)
-                m = repeat(m, "b i j -> (b h) i j", h=self.heads)
-                sim = sim.masked_fill(~m, float("-inf"))
-
-            attn_weights = sim.softmax(dim=-1)
-            # dropout on weights
-            if self.training and self.to_out[1].p > 0:
-                attn_weights = F.dropout(attn_weights, p=self.to_out[1].p, training=True)
-
-            out = einsum("b i j, b j d -> b i d", attn_weights, v)
-
+        attn_mask = None
+        if exists(mask):
+            m = mask.unsqueeze(1).expand(-1, Nq, -1)
+            attn_mask = repeat(m, "b i j -> (b h) i j", h=self.heads)
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=attn_mask,
+            dropout_p=self.to_out[1].p,
+            is_causal=False
+        )
         # re-combine heads
         out = rearrange(out, "(b h) n d -> b n (h d)", h=self.heads)
-        result = self.to_out[0](out)
+        Y = self.to_out[0](out)
 
-        if self.return_attention and attn_weights is not None:
-            return result, attn_weights
-        return result
+
+        G1 = self.gate_act( self.to_gate_G1(x) )  
+        Y = Y * G1
+
+
+
+
+        #if self.return_attention and attn_weights is not None:
+        #    return Y, attn_weights
+        return Y
 
 
 class LatentAttentionPooling(nn.Module):
