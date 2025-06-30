@@ -113,7 +113,7 @@ checkpoint_callback_val_mod_train = ModelCheckpoint(
 #)
 
 
-accumulator = GradientAccumulationScheduler(scheduling={0:64})
+accumulator = GradientAccumulationScheduler(scheduling={0:16})
 
 # Trainer
 trainer = Trainer(
@@ -127,13 +127,12 @@ trainer = Trainer(
     callbacks=[checkpoint_callback_val_mod_train,accumulator],
     default_root_dir="./checkpoints/",
     #val_check_interval=0.3,
-    precision="bf16-mixed"
+    precision="bf16-mixed",
 )
 
 
 # Fit the model
-trainer.fit(model,ckpt_path="./checkpoints/Atomiserxp_20250619_194823_9zs3-alone_best_model_val_mod_train-epoch=17-val_mod_train_ap=53.0065.ckpt", datamodule=data_module)
-
+trainer.fit(model, datamodule=data_module) #ckpt_path="./checkpoints/Atomiserxp_20250627_122611_9hxb-alone_best_model_val_mod_train-epoch=06-val_mod_train_ap=49.4959.ckpt"
 
 
 

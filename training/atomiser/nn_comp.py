@@ -117,93 +117,114 @@ class SelfAttention(nn.Module):
         out = rearrange(out, "(b h) n d -> b n (h d)", h=self.heads)
         return self.to_out[0](out)
 
-
 class CrossAttention(nn.Module):
-    def __init__(
-        self,
-        query_dim: int,
-        context_dim: int = None,
-        heads: int = 8,
-        dim_head: int = 64,
-        dropout: float = 0.,
-        use_flash: bool =False,
-        return_attention: bool = False,
-    ):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0., use_flash=True):
         super().__init__()
         context_dim = context_dim or query_dim
         inner = dim_head * heads
         self.heads = heads
-        # original scale
         self.scale = dim_head ** -0.5
         self.use_flash = use_flash and hasattr(F, "scaled_dot_product_attention")
-        #self.return_attention = return_attention
-        # new temperature
-
-
+        
         self.to_q = nn.Linear(query_dim, inner, bias=False)
         self.to_kv = nn.Linear(context_dim, inner * 2, bias=False)
         self.to_out = nn.Sequential(
             nn.Linear(inner, query_dim),
             nn.Dropout(dropout)
         )
-
-        self.to_gate_G1 = nn.Linear(query_dim, query_dim)  # W_θ
-        self.to_gate_G2 = nn.Linear(context_dim, inner)  # W_θ
-        self.to_gate_G3 = nn.Linear(context_dim, inner)  # W_θ
-        self.to_gate_G4 = nn.Linear(query_dim, inner)  # W_θ
-
-        self.gate_act = nn.Sigmoid()
-
         
-      
-
+        # Store dropout separately for manual attention
+        self.dropout = nn.Dropout(dropout)
+        
+        # Will hold the last attention weights (manual path only)
+        self.last_attn = None
+        
     def forward(self, x, context, mask=None):
         B, Nq, _ = x.shape
         Nk = context.shape[1]
+        
+        # 1) Project Q, K, V
+        q = self.to_q(x)  # (B, Nq, inner)
+        kv = self.to_kv(context)  # (B, Nk, 2·inner)
+        k, v = kv.chunk(2, dim=-1)  # each (B, Nk, inner)
+        
+        # 2) Split heads
+        q = rearrange(q, "b n (h d) -> b h n d", h=self.heads)
+        k = rearrange(k, "b n (h d) -> b h n d", h=self.heads)
+        v = rearrange(v, "b n (h d) -> b h n d", h=self.heads)
+        
+        if self.use_flash:
+            # FLASH path: no ability to grab attention weights
+            attn_mask = None
+            if mask is not None:
+                # mask should be (B, Nq, Nk) - True for valid positions
+                if mask.dim() == 2:
+                    # If mask is (B, Nk), expand to (B, Nq, Nk)
+                    mask = mask.unsqueeze(1).expand(-1, Nq, -1)
+                attn_mask = mask.unsqueeze(1).expand(-1, self.heads, -1, -1)
+            
+            out = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout.p if self.training else 0.0,
+                is_causal=False
+            )
+            self.last_attn = None
+            
+        else:
+            # MANUAL path: compute attention, stash weights, then apply to values
+            sim = torch.einsum("b h i d, b h j d -> b h i j", q, k) * self.scale
+            
+            
+            
+            if mask is not None:
+                # mask should be (B, Nq, Nk) - True for valid positions
+                if mask.dim() == 2:
+                    # If mask is (B, Nk), expand to (B, Nq, Nk)
+                    mask = mask.unsqueeze(1).expand(-1, Nq, -1)
+                # Expand for heads: (B, 1, Nq, Nk) -> (B, heads, Nq, Nk)
+                mask = mask.unsqueeze(1).expand(-1, self.heads, -1, -1)
+                sim = sim.masked_fill(~mask, float("-inf"))
+                
 
-        q = self.to_q(x)  
-        G4 = self.gate_act( self.to_gate_G4(x) )
-        q= q * G4
-
-        kv = self.to_kv(context)         
-        k, v = kv.chunk(2, dim=-1)
-        G2 = self.gate_act( self.to_gate_G2(context) )  
-        G3 = self.gate_act( self.to_gate_G3(context) )  
-        k= k * G3
-        v= v * G2
-
-        # split heads
-        q = rearrange(q, "b n (h d) -> (b h) n d", h=self.heads)
-        k = rearrange(k, "b n (h d) -> (b h) n d", h=self.heads)
-        v = rearrange(v, "b n (h d) -> (b h) n d", h=self.heads)
-
-        #attn_weights = None
-
-        attn_mask = None
-        if exists(mask):
-            m = mask.unsqueeze(1).expand(-1, Nq, -1)
-            attn_mask = repeat(m, "b i j -> (b h) i j", h=self.heads)
-        out = F.scaled_dot_product_attention(
-            q, k, v,
-            attn_mask=attn_mask,
-            dropout_p=self.to_out[1].p,
-            is_causal=False
-        )
-        # re-combine heads
-        out = rearrange(out, "(b h) n d -> b n (h d)", h=self.heads)
-        Y = self.to_out[0](out)
-
-
-        G1 = self.gate_act( self.to_gate_G1(x) )  
-        Y = Y * G1
-
-
-
-
-        #if self.return_attention and attn_weights is not None:
-        #    return Y, attn_weights
-        return Y
-
+            
+            
+            
+            attn = sim.softmax(dim=-1)  # (B, heads, Nq, Nk)
+            
+            # Check for NaN after softmax
+            if torch.isnan(attn).any():
+                print(f"ERROR: NaN detected after softmax!")
+                print(f"Sim before softmax contains inf: {torch.isinf(sim).any()}")
+                print(f"Sim before softmax min/max: {sim[~torch.isinf(sim)].min():.6f} / {sim[~torch.isinf(sim)].max():.6f}")
+                # Replace NaN with uniform distribution over valid positions
+                if mask is not None:
+                    uniform_attn = mask.float() / mask.float().sum(dim=-1, keepdim=True).clamp(min=1)
+                    attn = torch.where(torch.isnan(attn), uniform_attn, attn)
+                else:
+                    uniform_attn = torch.ones_like(attn) / attn.size(-1)
+                    attn = torch.where(torch.isnan(attn), uniform_attn, attn)
+            
+            # Apply dropout to attention weights
+            attn = self.dropout(attn)
+            
+            # IMPORTANT: Zero out attention scores for masked positions
+            # This ensures masked tokens don't contribute to entropy calculations  
+            if mask is not None:
+                attn = attn * mask.float()
+                # Renormalize to ensure rows sum to 1
+                attn_sum = attn.sum(dim=-1, keepdim=True).clamp(min=1e-9)
+                attn = attn / attn_sum
+            
+            # Apply attention to values
+            out = torch.einsum("b h i j, b h j d -> b h i d", attn, v)
+            
+            # Store attention weights for inspection/entropy calculation
+            self.last_attn = attn.detach()  # Now contains zeros for masked positions
+        
+        # 3) Recombine heads and project
+        out = rearrange(out, "b h n d -> b n (h d)")
+        return self.to_out(out)
 
 class LatentAttentionPooling(nn.Module):
     def __init__(self, dim, heads=4, dim_head=64, dropout=0.):
