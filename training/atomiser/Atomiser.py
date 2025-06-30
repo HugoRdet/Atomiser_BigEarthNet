@@ -31,11 +31,40 @@ def cache_fn(f):
 
 
 def pruning(tokens, attention_mask, percent):
-    N = tokens.size(1)
-    n_mask = int(N * percent/100.)
-    perm = torch.randperm(N, device=tokens.device)
-    keep_idx = perm[n_mask:]              
-    return tokens[:, keep_idx], attention_mask[:, keep_idx], keep_idx
+    """
+    Randomly drop `percent` of the *valid* tokens, i.e. those
+    whose mask==True in *any* batch element.  Returns:
+      - pruned tokens:     tokens[:, keep_idx, :]
+      - pruned attention_mask: attention_mask[:, keep_idx]
+      - keep_idx: indices of kept tokens in the original N
+    """
+    B, N, D = tokens.shape
+
+    # find positions that are unmasked in *at least one* batch entry
+    # (so we don't throw away tokens just because they happen
+    #  to be masked in *some* images)
+    valid = attention_mask.any(dim=0)           # shape (N,), bool
+    valid_idx = torch.nonzero(valid, as_tuple=True)[0]  # (M,) positions
+
+    M = valid_idx.numel()
+    # how many of those M we want to drop
+    n_drop = int(M * percent / 100)
+    if n_drop <= 0:
+        # nothing to drop
+        return tokens, attention_mask, torch.arange(N, device=tokens.device)
+
+    # shuffle only the valid positions
+    perm = valid_idx[torch.randperm(M, device=tokens.device)]
+    keep = perm[n_drop:]                       # keep the last M-n_drop
+
+    # sort so we preserve original order
+    keep_idx = torch.sort(keep)[0]
+
+    # index into tokens & mask
+    pruned_tokens = tokens[:, keep_idx, :]      # (B, M-n_drop, D)
+    pruned_mask   = attention_mask[:, keep_idx] # (B, M-n_drop)
+    
+    return pruned_tokens, pruned_mask, keep_idx
 
 
 
@@ -204,14 +233,12 @@ class Atomiser(pl.LightningModule):
         for (cross_attn, cross_ff, self_attns) in self.layers:
             # optionally prune
             if self.masking > 0 and training:
-                t, m, idx = pruning(t, m, self.masking)
+                t, m, idx = pruning(tokens, tokens_mask, self.masking)
             # cross-attn
             x = cross_attn(x, context=t, mask=m) + x
             x = cross_ff(x) + x
             # restore tokens if pruned
-            if self.masking > 0 and training:
-                tokens[:, idx] = t
-                tokens_mask[:, idx] = m
+            
             # self-attn blocks
             for (sa, ff) in self_attns:
                 x = sa(x) + x
