@@ -30,6 +30,57 @@ def cache_fn(f):
     return cached_fn
 
 
+
+import torch
+
+def sample_tensor_percent_batch(tensor: torch.Tensor, percent: float):
+    """
+    Randomly samples a percentage of elements along the second dimension (n) of a batched tensor
+    and returns both the sampled tensor and the indices used.
+
+    Args:
+        tensor (torch.Tensor): Input tensor of shape [b, n, d]
+        percent (float): Percentage of elements to sample along dimension n (between 0 and 100)
+
+    Returns:
+        sampled (torch.Tensor): Sampled tensor of shape [b, n', d]
+        indices (torch.LongTensor): Indices used to sample, shape [b, n']
+    """
+    assert 0 <= percent <= 100, "percent must be between 0 and 100"
+    b, n, d = tensor.shape
+    n_sample = int(n * percent / 100)
+
+    # Sample indices for each batch
+    indices = torch.stack([
+        torch.randperm(n)[:n_sample] for _ in range(b)
+    ])  # shape [b, n']
+
+    # Create batch indices for advanced indexing
+    batch_indices = torch.arange(b).unsqueeze(1).expand(-1, n_sample)  # shape [b, n']
+
+    # Gather sampled values
+    sampled = tensor[batch_indices, indices]  # shape [b, n', d]
+
+    return sampled, indices
+
+
+def sample_tensor_percent(tensor: torch.Tensor, percent: float) -> torch.Tensor:
+    """
+    Randomly samples a percentage of rows from a tensor.
+
+    Args:
+        tensor (torch.Tensor): Input tensor of shape [n, d]
+        percent (float): Percentage of rows to sample (between 0 and 100)
+
+    Returns:
+        torch.Tensor: Sampled tensor of shape [n', d], where n' = int(n * percent / 100)
+    """
+    assert 0 <= percent <= 100, "percent must be between 0 and 100"
+    n = tensor.size(0)
+    n_sample = int(n * percent / 100)
+    indices = torch.randperm(n)[:n_sample]
+    return tensor[indices]
+
 def pruning(tokens, attention_mask, percent):
     """
     Randomly drop `percent` of the *valid* tokens, i.e. those
@@ -219,8 +270,9 @@ class Atomiser(pl.LightningModule):
 
 
         b = tokens.shape[0]
+        x=sample_tensor_percent(self.latents, 10)
         # initialize latents
-        x = repeat(self.latents, 'n d -> b n d', b=b)
+        x = repeat(x, 'n d -> b n d', b=b)
         # apply mask to tokens
         tokens_mask = tokens_mask.to(torch.bool)
         tokens = tokens.masked_fill_(~tokens_mask.unsqueeze(-1), 0.)
@@ -230,12 +282,17 @@ class Atomiser(pl.LightningModule):
         
 
         # cross & self layers
-        for (cross_attn, cross_ff, self_attns) in self.layers:
+        for idx_layer,(cross_attn, cross_ff, self_attns) in enumerate(self.layers):
             # optionally prune
             if self.masking > 0 and training:
                 t, m, idx = pruning(tokens, tokens_mask, self.masking)
             # cross-attn
-            x = cross_attn(x, context=t, mask=m) + x
+
+          
+            x = cross_attn(x, context=t, mask=m,id=idx_layer) + x
+
+          
+
             x = cross_ff(x) + x
             # restore tokens if pruned
             

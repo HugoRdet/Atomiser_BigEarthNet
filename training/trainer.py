@@ -237,8 +237,8 @@ class Model(pl.LightningModule):
                 print(f"  ERROR: NaN detected in entropy_loss for layer {i}")
                 entropy_loss = torch.tensor(0.0, device=attn.device, requires_grad=True)
             
-            self.log(f"entropy_loss_layer_{i}", entropy_loss.item(),
-                    on_step=True, on_epoch=False, logger=True, sync_dist=False)
+            #self.log(f"entropy_loss_layer_{i}", entropy_loss.item(),
+            #        on_step=True, on_epoch=False, logger=True, sync_dist=False)
             
             # Scale by regularization coefficient
             if hasattr(self, 'attention_regu') and i < len(self.attention_regu):
@@ -257,8 +257,7 @@ class Model(pl.LightningModule):
                 print("ERROR: NaN detected in total entropy loss")
                 loss_ent = torch.tensor(0.0, device=loss.device, requires_grad=True)
             
-            self.log("total_entropy_loss", loss_ent.item(),
-                    on_step=True, on_epoch=False, logger=True, sync_dist=False)
+            #self.log("total_entropy_loss", loss_ent.item(),on_step=True, on_epoch=False, logger=True, sync_dist=False)
         else:
             loss_ent = torch.tensor(0.0, device=loss.device, requires_grad=True)
 
@@ -271,8 +270,8 @@ class Model(pl.LightningModule):
         self.metric_train_AP_per_class.update(y_hat, labels.to(torch.int))
         
         # Log losses
-        self.log("train_base_loss", loss.item(), on_step=False, on_epoch=True, logger=False, sync_dist=False)
-        self.log("train_total_loss", total_loss.item(), on_step=False, on_epoch=True, logger=False, sync_dist=False)
+        self.log("train_loss", loss.item(), on_step=False, on_epoch=True, logger=False, sync_dist=False)
+        #self.log("train_total_loss", total_loss.item(), on_step=False, on_epoch=True, logger=False, sync_dist=False)
         
         return total_loss
     
@@ -312,7 +311,7 @@ class Model(pl.LightningModule):
         
     def validation_step(self, batch, batch_idx,dataloader_idx=0):
         img, mask,resolution, labels, _ = batch
-        y_hat = self.forward(img,mask,resolution,training=True)
+        y_hat = self.forward(img,mask,resolution,training=False)
 
         loss = self.loss(y_hat, labels.float())
         
@@ -361,11 +360,11 @@ class Model(pl.LightningModule):
         self.metric_test_AP_per_class.update(y_hat, labels.to(torch.int))
         
         # Visualize attention for the first 10 batches only
-        max_batch=256
-        if batch_idx < max_batch:
+        #max_batch=256
+        #if batch_idx < max_batch:
             # Pass the current global step and batch_idx for better tracking
-            current_step = self.trainer.global_step if hasattr(self.trainer, 'global_step') else batch_idx
-            self.encoder.visualize_attention(img, mask, resolution, step=current_step, batch_id=batch_idx,MAX_BB=max_batch)
+            #current_step = self.trainer.global_step if hasattr(self.trainer, 'global_step') else batch_idx
+            #self.encoder.visualize_attention(img, mask, resolution, step=current_step, batch_id=batch_idx,MAX_BB=max_batch)
         
         return y_hat
 

@@ -292,7 +292,7 @@ if config_model["encoder"]=="ScaleMAE":
     prefix=prefix=config_model["encoder"]
 
 if config_model["encoder"]=="Atomiser":
-    prefix=config_model["encoder"]+"xp_20250523_085218_32"
+    prefix=config_model["encoder"]+"xp_20250702_091634_e4f7"
     
 ckpt_train = latest_ckpt_for(prefix)
 print("→ Testing on ckpt (val_mod_train):", ckpt_train)
@@ -312,7 +312,7 @@ data_module = Tiny_BigEarthNetDataModule(
 # One Trainer is enough; we'll just call .test twice
 test_trainer = Trainer(
     accelerator="gpu",
-    devices=[1],
+    devices=-1,
     logger=wandb_logger,
     precision="16-mixed",
 )

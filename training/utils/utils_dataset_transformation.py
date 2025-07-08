@@ -472,10 +472,10 @@ class transformations_config(nn.Module):
             im_sen.shape, res,resolution, T_size, B_size, mode, im_sen.device
         )
      
-
+        
         tokens = torch.cat([
-            central_wavelength_processing,
             value_processed,
+            central_wavelength_processing,
             band_post_proc,
         ], dim=5)
 

@@ -118,7 +118,7 @@ class SelfAttention(nn.Module):
         return self.to_out[0](out)
 
 class CrossAttention(nn.Module):
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0., use_flash=True):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0., use_flash=True,id=0):
         super().__init__()
         context_dim = context_dim or query_dim
         inner = dim_head * heads
@@ -127,7 +127,11 @@ class CrossAttention(nn.Module):
         self.use_flash = use_flash and hasattr(F, "scaled_dot_product_attention")
         
         self.to_q = nn.Linear(query_dim, inner, bias=False)
-        self.to_kv = nn.Linear(context_dim, inner * 2, bias=False)
+        
+        self.to_k = nn.Linear(context_dim, inner , bias=False)
+     
+        self.to_v = nn.Linear(context_dim, inner , bias=False)
+
         self.to_out = nn.Sequential(
             nn.Linear(inner, query_dim),
             nn.Dropout(dropout)
@@ -139,14 +143,22 @@ class CrossAttention(nn.Module):
         # Will hold the last attention weights (manual path only)
         self.last_attn = None
         
-    def forward(self, x, context, mask=None):
+    def forward(self, x, context, mask=None,id=0):
         B, Nq, _ = x.shape
         Nk = context.shape[1]
         
         # 1) Project Q, K, V
         q = self.to_q(x)  # (B, Nq, inner)
-        kv = self.to_kv(context)  # (B, Nk, 2·inner)
-        k, v = kv.chunk(2, dim=-1)  # each (B, Nk, inner)
+        #k = self.to_k(context)  # (B, Nk, 2·inner)
+        k=None
+
+        if id>0:
+            context_k=context.clone()
+            context_k[:,:,:129]=0.0
+            k = self.to_k(context_k)  # each (B, Nk, inner)
+        else:
+            k=self.to_k(context)
+        v = self.to_v(context)  # each (B, Nk, inner)
         
         # 2) Split heads
         q = rearrange(q, "b n (h d) -> b h n d", h=self.heads)
@@ -192,18 +204,7 @@ class CrossAttention(nn.Module):
             
             attn = sim.softmax(dim=-1)  # (B, heads, Nq, Nk)
             
-            # Check for NaN after softmax
-            if torch.isnan(attn).any():
-                print(f"ERROR: NaN detected after softmax!")
-                print(f"Sim before softmax contains inf: {torch.isinf(sim).any()}")
-                print(f"Sim before softmax min/max: {sim[~torch.isinf(sim)].min():.6f} / {sim[~torch.isinf(sim)].max():.6f}")
-                # Replace NaN with uniform distribution over valid positions
-                if mask is not None:
-                    uniform_attn = mask.float() / mask.float().sum(dim=-1, keepdim=True).clamp(min=1)
-                    attn = torch.where(torch.isnan(attn), uniform_attn, attn)
-                else:
-                    uniform_attn = torch.ones_like(attn) / attn.size(-1)
-                    attn = torch.where(torch.isnan(attn), uniform_attn, attn)
+            
             
             # Apply dropout to attention weights
             attn = self.dropout(attn)
