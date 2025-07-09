@@ -270,7 +270,7 @@ class Atomiser(pl.LightningModule):
 
 
         b = tokens.shape[0]
-        x=sample_tensor_percent(self.latents, 10)
+        x=sample_tensor_percent(self.latents, 50)
         # initialize latents
         x = repeat(x, 'n d -> b n d', b=b)
         # apply mask to tokens
