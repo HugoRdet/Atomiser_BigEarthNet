@@ -165,8 +165,9 @@ def create_dataset(dico_idxs, ds,df, name="tiny", mode="train",trans_config=None
     
     # 2) If stats is not given, compute it in a streaming fashion
     if stats is None:
-        if os.path.exists("data/stats.pt"):
-            stats=torch.load("data/stats.pt",weights_only=True)
+        if os.path.exists("data/normalisation/stats.pt"):
+            stats=torch.load("data/normalisation/stats.pt",weights_only=True)
+            print("ok!")
         else:
             stats = compute_channel_mean_std( dico_idxs,ds)
 
@@ -184,14 +185,17 @@ def create_dataset(dico_idxs, ds,df, name="tiny", mode="train",trans_config=None
 
     # 3) Create a new HDF5 file
     cpt_train = 0
+    
 
-    if max_len!=None:
+    if max_len!=-1:
         max_len=int(len(ds)*max_len)    
 
 
 
     for elem_id in tqdm(range(len(ds))):
+        
         if cpt_train>max_len and max_len!=-1:
+            print("oui Milgram",cpt_train,"   ",max_len)
             print(cpt_train)
             break
 
@@ -212,7 +216,6 @@ def create_dataset(dico_idxs, ds,df, name="tiny", mode="train",trans_config=None
             else:
                 dico_stats[tmp_id_elem]+=1
         
-
 
         if trans_config!=None:
             trans_config.create_transform_image_dico(int(elem_id),mode="train",modality_folder=mode)
@@ -305,6 +308,7 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
 
         for elem_id in l_samples:
             img, label = ds[elem_id]  # shape (12, 120, 120)
+        
 
             trans_config.create_transform_image_dico(int(elem_id),mode="train",modality_folder=mode)
             trans_config.create_transform_image_dico(int(elem_id),mode="test",modality_folder=mode)
@@ -349,7 +353,17 @@ def create_dataset_dico(dico_idxs, ds, name="tiny", mode="train",trans_config=No
 
 
 class Tiny_BigEarthNet(Dataset):
-    def __init__(self, file_path, transform,transform_tokens=None,model="None",mode="train",modality_mode=None,fixed_size=None,fixed_resolution=None):
+    def __init__(self, file_path, 
+                 transform,
+                 transform_tokens=None,
+                 model="None",
+                 mode="train",
+                 modality_mode=None,
+                 fixed_size=None,
+                 fixed_resolution=None,
+                 dataset_config=None,
+                 config_model=None):
+        
         self.file_path = file_path
         self.num_samples = None
         self.mode=mode
@@ -361,6 +375,14 @@ class Tiny_BigEarthNet(Dataset):
         self.original_mode=mode
         self.fixed_size=fixed_size
         self.fixed_resolution=fixed_resolution
+        self.bands_info=dataset_config
+        self.bandwidths=torch.zeros(12)
+        self.wavelengths=torch.zeros(12)
+        self.config_model=config_model
+        self.nb_tokens=self.config_model["trainer"]["max_tokens"]
+
+        self.prepare_band_infos()
+        
 
         if modality_mode==None:
             self.modality_mode=mode
@@ -396,6 +418,16 @@ class Tiny_BigEarthNet(Dataset):
     def reset_modality_mode(self):
         self.modality_mode=self.original_mode
 
+    def prepare_band_infos(self):
+        
+        for idx,band in enumerate(self.bands_info["bands_sen2_info"]):
+            band_data=self.bands_info["bands_sen2_info"][band]
+            self.bandwidths[idx]=band_data["bandwidth"]
+            self.wavelengths[idx]=band_data["central_wavelength"]
+
+
+            
+
     def __getitem__(self, idx):
 
 
@@ -420,18 +452,35 @@ class Tiny_BigEarthNet(Dataset):
 
         
 
-        if self.transform_tokens!=None:
+        if self.model=="Atomiser":
+            #here we do:
+            #   adding the grid coordinates
+            #   adding the central wavelength and bandwidths
+            #
+            image_size=image.shape[-1]
+           
+           
+            axis_pos = torch.linspace(-60 * (10/new_resolution), 60 * (10/new_resolution), steps=image_size)
+            px, py = torch.meshgrid(axis_pos, axis_pos, indexing="ij")  # [size, size]
+            px=repeat(px.unsqueeze(0),"u h w -> (u r) h w",r=12).unsqueeze(-1)
+            py=repeat(py.unsqueeze(0),"u h w -> (u r) h w",r=12).unsqueeze(-1)
 
-            
-            
-            image,attention_mask=self.transform_tokens.process_data(image.unsqueeze(0),attention_mask.unsqueeze(0))
-            image=image.squeeze(0)
-            attention_mask=attention_mask.squeeze(0)
+            tmp_bandwidths=self.bandwidths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+            tmp_bandwidths=repeat(tmp_bandwidths,"b h w c -> b (h h1) (w w1) c",h1=image_size,w1=image_size)
 
-            cond=attention_mask==1
-            image=image[cond]
-            attention_mask=attention_mask[cond]
+            tmp_wavelengths=self.wavelengths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+            tmp_wavelengths=repeat(tmp_wavelengths,"b h w c -> b (h h1) (w w1) c",h1=image_size,w1=image_size)
             
+            image=image.unsqueeze(-1)
+            
+            
+            
+            image=rearrange(image,"b h w c -> (b h w) c")
+            tmp_rand=torch.randperm(image.shape[0])
+            image=image[tmp_rand[:self.nb_tokens]]
+            attention_mask=torch.ones(image.shape)
+            
+            return image,attention_mask,new_resolution, label, id_img
 
 
 
@@ -551,7 +600,9 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
                 batch_size=32, 
                 num_workers=4,
                 modality=None,
-                ds=None):
+                ds=None,
+                dataset_config=None,
+                config_model=None):
         super().__init__()
         self.train_file = path + "_train.h5"
         self.val_file = path + "_validation.h5"
@@ -562,10 +613,13 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         self.model = model
         self.modality=modality
         self.trans_tokens=trans_tokens
+        self.dataset_config=dataset_config
+        self.config_model=config_model
         
  
 
     def setup(self, stage=None):
+        
 
         
         
@@ -575,6 +629,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             transform_tokens=self.trans_tokens,
             model=self.model,
             mode="train",
+            dataset_config=self.dataset_config,
+            config_model=self.config_model
         )
 
             
@@ -584,6 +640,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             transform_tokens=self.trans_tokens,
             model=self.model,
             mode="validation",
+            dataset_config=self.dataset_config,
+            config_model=self.config_model
         )
 
         self.val_dataset_mode_train = Tiny_BigEarthNet(
@@ -592,6 +650,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             transform_tokens=self.trans_tokens,
             model=self.model,
             mode="validation",
+            dataset_config=self.dataset_config,
+            config_model=self.config_model
         )
 
         self.val_dataset_mode_train.modality_mode="train"
@@ -605,11 +665,14 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             transform_tokens=self.trans_tokens,
             model=self.model,
             mode="test",
-            modality_mode=self.modality
+            modality_mode=self.modality,
+            dataset_config=self.dataset_config,
+            config_model=self.config_model
         )
 
         if self.modality!=None:
             self.test_dataset.modality_mode=self.modality
+
 
     def train_dataloader(self):
         # Create the custom distributed sampler inside the DataLoader call.
@@ -698,7 +761,8 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
                 modality=None,
                 ds=None,
                 fixed_resolution=None,
-                fixed_size=None):
+                fixed_size=None,
+                dataset_config=None):
         super().__init__()
         self.train_file = path + "_train.h5"
         self.val_file = path + "_validation.h5"
@@ -711,6 +775,7 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
         self.trans_tokens=trans_tokens
         self.fixed_resolution=fixed_resolution
         self.fixed_size=fixed_size
+        self.dataset_config=dataset_config
  
 
     def setup(self, stage=None):
@@ -724,8 +789,11 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
             model=self.model,
             mode="train",
             fixed_resolution=self.fixed_resolution,
-            fixed_size=self.fixed_size
+            fixed_size=self.fixed_size,
+            dataset_config=self.dataset_config
         )
+
+        
 
             
         self.val_dataset = Tiny_BigEarthNet(
@@ -734,6 +802,7 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
             transform_tokens=self.trans_tokens,
             model=self.model,
             mode="validation",
+            dataset_config=self.dataset_config
         )
 
         self.val_dataset_mode_train = Tiny_BigEarthNet(
@@ -742,6 +811,7 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
             transform_tokens=self.trans_tokens,
             model=self.model,
             mode="validation",
+            dataset_config=self.dataset_config
         )
 
         self.val_dataset_mode_train.modality_mode="train"
@@ -763,7 +833,8 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
                     mode="test",
                     modality_mode=self.modality,
                     fixed_resolution=resolution,
-                    fixed_size=-1
+                    fixed_size=-1,
+                    dataset_config=self.dataset_config
                 )
 
                 self.test_dataset.append(test_dataset)
@@ -781,7 +852,8 @@ class Tiny_BigEarthNetDataModule_test_RS(pl.LightningDataModule):
                     mode="test",
                     modality_mode=self.modality,
                     fixed_resolution=-1,
-                    fixed_size=size
+                    fixed_size=size,
+                    dataset_config=self.dataset_config
                 )
 
                 self.test_dataset.append(test_dataset)

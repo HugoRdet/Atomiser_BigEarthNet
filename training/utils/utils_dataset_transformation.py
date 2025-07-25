@@ -11,6 +11,11 @@ from torchvision.transforms.functional import rotate, hflip, vflip
 import random
 import torch.nn as nn
 import time
+import math
+
+from torch.profiler import record_function
+
+
 
 def fourier_encode(x, max_freq, num_bands = 4):
     x = x.unsqueeze(-1)
@@ -139,7 +144,6 @@ class transformations_config(nn.Module):
             positional_scaling=positional_scaling_l[idx]
 
             axis_pos = list(map(lambda size: torch.linspace(-positional_scaling/2.0, positional_scaling/2.0, steps=size,device=device), (size,size)))
-
             pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
             
             pos=fourier_encode(pos,max_freq=max_freq,num_bands = num_bands)
@@ -225,6 +229,150 @@ class transformations_config(nn.Module):
 
         # [B_size, T_size, H, W, C, D]
         return torch.cat(encodings, dim=0)
+    
+
+
+    def get_gaussian_encoding(
+        self,
+        res: torch.Tensor,   # [B], resolution in m/px per batch
+        size: int,           # grid size (M = N = size)
+        num_gaussians: int,  # number of Gaussians per axis
+        sigma: float,
+        device=None
+    ):
+        """
+        Optimized version with caching by (resolution, num_gaussians, sigma) combinations.
+        
+        Returns:
+            responses: [B, size, size, 2 * num_gaussians]
+        """
+        device = device or res.device
+        B = res.shape[0]
+        
+        # --- Initialize caches ---
+        if not hasattr(self, "_gaussian_cache"):
+            self._gaussian_cache = {}
+        if not hasattr(self, "_gaussian_encoding_cache"):
+            self._gaussian_encoding_cache = {}
+        
+        # --- Gaussian centers (cache by num_gaussians) ---
+        centers_key = ("centers_1d", num_gaussians)
+        if centers_key not in self._gaussian_cache:
+            self._gaussian_cache[centers_key] = torch.linspace(-600.0, 600.0, num_gaussians, device=device)
+        centers = self._gaussian_cache[centers_key]  # [G]
+        G = num_gaussians
+        
+        # Convert resolution to the format used in original code
+        res_b = 10.0 / res  # [B]
+        
+        # Pre-compute constants
+        sqrt_2 = math.sqrt(2)
+        norm_factor = sigma * math.sqrt(math.pi / 2)
+        inv_sqrt2_sigma = 1.0 / (sqrt_2 * sigma)
+        
+        # Group batch samples by resolution for efficient caching
+        unique_res = torch.unique(res_b)
+        responses_batch = []
+        
+        for unique_r in unique_res:
+            # Find all batch indices with this resolution
+            batch_mask = (res_b == unique_r)
+            batch_indices = torch.where(batch_mask)[0]
+            
+            if len(batch_indices) == 0:
+                continue
+                
+            res_val = float(unique_r)
+            
+            # Create cache key for this specific combination
+            cache_key = (size, num_gaussians, sigma, res_val, device)
+            
+            if cache_key not in self._gaussian_encoding_cache:
+                # Compute and cache the encoding for this resolution
+                cached_encoding = self._compute_gaussian_encoding_for_resolution(
+                    size, num_gaussians, sigma, res_val, centers, 
+                    sqrt_2, norm_factor, inv_sqrt2_sigma, device
+                )
+                self._gaussian_encoding_cache[cache_key] = cached_encoding
+            else:
+                cached_encoding = self._gaussian_encoding_cache[cache_key]
+            
+            # Expand cached result for all batch samples with this resolution
+            num_samples = len(batch_indices)
+            expanded_encoding = cached_encoding.unsqueeze(0).expand(num_samples, -1, -1, -1)
+            
+            # Store results in correct batch order
+            for i, batch_idx in enumerate(batch_indices):
+                if len(responses_batch) <= batch_idx:
+                    responses_batch.extend([None] * (batch_idx - len(responses_batch) + 1))
+                responses_batch[batch_idx] = expanded_encoding[i]
+        
+        # Stack all results maintaining original batch order
+        return torch.stack(responses_batch, dim=0)
+
+    def _compute_gaussian_encoding_for_resolution(
+        self, px,py, num_gaussians, sigma, res_val, centers, 
+        sqrt_2, norm_factor, inv_sqrt2_sigma, device
+    ):
+        """
+        Compute Gaussian encoding for a single resolution value.
+        This gets cached to avoid recomputation.
+        
+        Returns:
+            encoding: [size, size, 2 * num_gaussians]
+        """
+        G = num_gaussians
+        half_res = res_val / 2
+        
+        
+        # Expand dimensions for vectorized computation with Gaussians
+        px_exp = px.unsqueeze(-1)  # [size, size, 1]
+        py_exp = py.unsqueeze(-1)  # [size, size, 1]
+        centers_exp = centers.view(1, 1, G)  # [1, 1, G]
+        
+        # Vectorized computation of error function bounds
+        # X-axis integrals
+        lower_x = (px_exp - half_res - centers_exp) * inv_sqrt2_sigma  # [size, size, G]
+        upper_x = (px_exp + half_res - centers_exp) * inv_sqrt2_sigma  # [size, size, G]
+        Ix = norm_factor * (torch.erf(upper_x) - torch.erf(lower_x))
+        
+        # Y-axis integrals  
+        lower_y = (py_exp - half_res - centers_exp) * inv_sqrt2_sigma  # [size, size, G]
+        upper_y = (py_exp + half_res - centers_exp) * inv_sqrt2_sigma  # [size, size, G]
+        Iy = norm_factor * (torch.erf(upper_y) - torch.erf(lower_y))
+        
+        # Concatenate x and y responses -> [size, size, 2*G]
+        response = torch.cat([Ix, Iy], dim=-1)
+        
+        # Per-pixel L2 normalization
+        response = response / (response.norm(dim=-1, keepdim=True) + 1e-8)
+        
+        return response
+
+    # Optional: Add cache management methods
+    def clear_gaussian_cache(self):
+        """Clear the Gaussian encoding cache to free memory."""
+        if hasattr(self, "_gaussian_encoding_cache"):
+            self._gaussian_encoding_cache.clear()
+        if hasattr(self, "_gaussian_cache"):
+            self._gaussian_cache.clear()
+
+    def get_cache_info(self):
+        """Get information about current cache usage."""
+        encoding_cache_size = len(getattr(self, "_gaussian_encoding_cache", {}))
+        gaussian_cache_size = len(getattr(self, "_gaussian_cache", {}))
+        
+        return {
+            "encoding_cache_entries": encoding_cache_size,
+            "gaussian_cache_entries": gaussian_cache_size,
+            "total_cache_entries": encoding_cache_size + gaussian_cache_size
+        }
+
+
+
+                
+
+        
 
 
 
@@ -440,47 +588,78 @@ class transformations_config(nn.Module):
 
             tmp_bandwidth, tmp_central_wavelength = self.s2_waves
 
-
-        # handle singleton dims
-        if im_sen.ndim == 4:
-            im_sen = im_sen.unsqueeze(0).unsqueeze(0)
-            mask_sen = mask_sen.unsqueeze(0).unsqueeze(0)
-
-        B_size, T_size, H, W, C = im_sen.shape
-        img_size = H
+  
 
 
+        #tokens of shape [batch,nb_tokens,5]
+        #last dimension:
+        #    - bandvalue
+        #    - xpos
+        #    - ypos
+        #    - bandwidth 
+        #    - central wavelength
 
-
+        B_size,T, C = im_sen.shape
+    
         # 2) Wavelength encoding
+        with record_function("Atomizer/process_data/get_tokens/wavelength_processing"):
 
-        central_wavelength_processing = self.wavelength_processing(
-            im_sen.device,
-            tmp_central_wavelength,
-            tmp_bandwidth,
-            img_size,
-            B_size,
-            T_size,
-            modality=mode
-        )
+            central_wavelength_processing = self.wavelength_processing(
+                im_sen.device,
+                tmp_central_wavelength,
+                tmp_bandwidth,
+                img_size,
+                B_size,
+                T_size,
+                modality=mode
+            )
 
-        # 3) Band‑value encoding
-        value_processed = self.get_bvalue_processing(im_sen)
+        
+        with record_function("Atomizer/process_data/get_tokens/get_bvalue_processing"):
+
+            # 3) Band‑value encoding
+            value_processed = self.get_bvalue_processing(im_sen)
 
         # 4) Positional encoding
-        band_post_proc = self.get_positional_processing(
-            im_sen.shape, res,resolution, T_size, B_size, mode, im_sen.device
-        )
-     
-        
-        tokens = torch.cat([
-            value_processed,
-            central_wavelength_processing,
-            band_post_proc,
-        ], dim=5)
+        #band_post_proc = self.get_positional_processing(
+        #    im_sen.shape, res,resolution, T_size, B_size, mode, im_sen.device
+        #)
 
-        tokens = einops.rearrange(tokens, "b t h w c f -> b (t h w c) f")
-        token_masks = einops.rearrange(mask_sen, "b t h w c -> b (t h w c)")
+        with record_function("Atomizer/process_data/get_tokens/get_gaussian_encoding"):
+
+            band_post_proc_0=self.get_gaussian_encoding(resolution,im_sen.shape[2],8,100, im_sen.device)
+            band_post_proc_0=band_post_proc_0.unsqueeze(1).unsqueeze(-2)
+            band_post_proc_0=repeat(band_post_proc_0,"b t h w s c -> b t h w (repeat s) c ", repeat=12)
+
+            band_post_proc_1=self.get_gaussian_encoding(resolution,im_sen.shape[2],16,40.0, im_sen.device)
+            band_post_proc_1=band_post_proc_1.unsqueeze(1).unsqueeze(-2)
+            band_post_proc_1=repeat(band_post_proc_1,"b t h w s c -> b t h w (repeat s) c ", repeat=12)
+
+            band_post_proc_2=self.get_gaussian_encoding(resolution,im_sen.shape[2],32,15.0, im_sen.device)
+            band_post_proc_2=band_post_proc_2.unsqueeze(1).unsqueeze(-2)
+            band_post_proc_2=repeat(band_post_proc_2,"b t h w s c -> b t h w (repeat s) c ", repeat=12)
+
+            band_post_proc_3=self.get_gaussian_encoding(resolution,im_sen.shape[2],73,4.0, im_sen.device)
+            band_post_proc_3=band_post_proc_3.unsqueeze(1).unsqueeze(-2)
+            band_post_proc_3=repeat(band_post_proc_3,"b t h w s c -> b t h w (repeat s) c ", repeat=12)
+        
+        
+        with record_function("Atomizer/process_data/get_tokens/cat"):
+            tokens = torch.cat([
+                value_processed,
+                central_wavelength_processing,
+                band_post_proc_0,
+                band_post_proc_1,
+                band_post_proc_2,
+                band_post_proc_3
+            ], dim=5)
+        
+
+        with record_function("Atomizer/process_data/get_tokens/reshape"):
+            tokens = einops.rearrange(tokens, "b t h w c f -> b (t h w c) f")
+            token_masks = einops.rearrange(mask_sen, "b t h w c -> b (t h w c)")
+
+      
 
 
 
@@ -536,6 +715,7 @@ class transformations_config(nn.Module):
 
         #get_positional_processing(self,img_shape,resolution,T_size,B_size,modality,device):
         band_post_proc = self.get_positional_processing(im_sen.shape,res,T_size,B_size,mode,im_sen.device )
+        
 
    
 
@@ -582,14 +762,12 @@ class transformations_config(nn.Module):
 
         
         
-        img=img.unsqueeze(1)
-        img=einops.rearrange(img,"B T C H W -> B T H W C")
-        mask=mask.unsqueeze(1)
-        mask=einops.rearrange(mask,"B T C H W -> B T H W C")
-        
         if self.config["dataset"]["S2"]:
-            tmp_img,tmp_mask=self.apply_temporal_spatial_transforms(img, mask)
-            tokens_s2,tokens_mask_s2=self.get_tokens(tmp_img,tmp_mask,resolution,mode="optique",modality="s2")
+            #with record_function("Atomizer/process_data/apply_temporal_spatial_transforms"):
+            #    tmp_img,tmp_mask=self.apply_temporal_spatial_transforms(img, mask)
+            
+            with record_function("Atomizer/process_data/get_tokens"):
+                tokens_s2,tokens_mask_s2=self.get_tokens(img,mask,resolution,mode="optique",modality="s2")
             L_masks.append(tokens_mask_s2)
             L_tokens.append(tokens_s2)
 
@@ -602,3 +780,5 @@ class transformations_config(nn.Module):
 
 
   
+
+

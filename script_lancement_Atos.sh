@@ -18,8 +18,8 @@ conda activate venv
 # Call training script with experiment name used in the arguments
 #sh TrainEval.sh "$EXPERIMENT_NAME" config_test-Atomiser_Atos.yaml regular
 
-MODEL_NAME=config_test-Atomiser_Atos2.yaml
+MODEL_NAME=config_test-Atomiser_Atos.yaml
 
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" regular
+sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" full
 
 

@@ -46,21 +46,25 @@ def change_size_get_only_coordinates(orig_size,new_size,center=False):
     y_max=int(new_center_y+new_size/2.0)
     return (x_min,x_max,y_min,y_max)
 
-def change_size(img,mask,coordinates):
+def change_size(img,mask,coordinates,crop=False):
     orig_size=img.shape[1]
 
     x_min,x_max,y_min,y_max=coordinates
     
     new_img=img[:,x_min:x_max,y_min:y_max]
+    if crop:
+        mask=torch.ones(new_img.shape)
 
-    
-    padded_img=torch.zeros(img.shape)
-    padding_size=int((orig_size-(x_max-x_min))/2.0)
-    
-    padded_img[:,padding_size:-padding_size,padding_size:-padding_size]=new_img
-    mask[:,:,:]=0.0
-    mask[:,padding_size:-padding_size,padding_size:-padding_size]=1.0
-    return padded_img,mask
+        return new_img,mask
+
+    else:
+        padded_img=torch.zeros(img.shape)
+        padding_size=int((orig_size-(x_max-x_min))/2.0)
+        
+        padded_img[:,padding_size:-padding_size,padding_size:-padding_size]=new_img
+        mask[:,:,:]=0.0
+        mask[:,padding_size:-padding_size,padding_size:-padding_size]=1.0
+        return padded_img,mask
 
 def random_value_from_range(min_value, max_value, step):
         """

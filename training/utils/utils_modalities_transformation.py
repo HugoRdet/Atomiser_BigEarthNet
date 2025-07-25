@@ -44,9 +44,10 @@ def apply_spatial_transforms(img: torch.Tensor) -> torch.Tensor:
 
 class modalities_transformations_config:
 
-    def __init__(self,configs_dataset,path_imgs_config="./data/Tiny_BigEarthNet/",bands_infos="./data/bands_info/bands.yaml",name_config="",force_modality=None):
+    def __init__(self,configs_dataset,model,path_imgs_config="./data/Tiny_BigEarthNet/",bands_infos="./data/bands_info/bands.yaml",name_config="",force_modality=None):
 
         self.force_modality=force_modality
+        self.model=model
         self.name_config=name_config
         self.configs_dataset=read_yaml(configs_dataset)
         self.groups=self.configs_dataset["groups"]
@@ -200,8 +201,10 @@ class modalities_transformations_config:
 
 
         save_path=f"{self.path}/{modality_folder}/{img_idx}_transfos_{mode}.yaml"
+        
         if self.name_config!="":
             save_path=f"{self.path}/{self.name_config}/{modality_folder}/{img_idx}_transfos_{mode}.yaml"
+
         save_yaml(save_path,target_dico)
 
     def apply_transformations(self,img,mask,idx,mode="train",modality_mode=None,f_s=None,f_r=None):
@@ -240,9 +243,15 @@ class modalities_transformations_config:
             if type(transfos["size"])==float:
                 if transfos["size"]<1:
                     transfo_val=change_size_get_only_coordinates(120,int(120*transfos["size"]),center=True)
-                    img,mask=change_size(img,mask,transfo_val)
+                    if self.model=="Atomiser":
+                        img,mask=change_size(img,mask,transfo_val,crop=True)
+                    else:
+                        img,mask=change_size(img,mask,transfo_val)
             else:
-                img,mask=change_size(img,mask,transfos["size"])
+                if self.model=="Atomiser":
+                    img,mask=change_size(img,mask,transfos["size"],crop=True)
+                else:
+                    img,mask=change_size(img,mask,transfos["size"])
 
         if "remove"in transfos:
             img,mask=remove_bands(img,mask,self.get_channels_from_froup(transfos["remove"]))

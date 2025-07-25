@@ -16,7 +16,7 @@ fi
 conda activate venv
 
 # Call training script with experiment name used in the arguments
-#sh TrainEval.sh "$EXPERIMENT_NAME" config_test-ViT_XS.yaml regular
+sh TrainEval.sh "$EXPERIMENT_NAME" config_test-ViT_XS.yaml full
 
 MODEL_NAME=config_test-ViT_XS.yaml
 
@@ -30,8 +30,8 @@ MODEL_NAME=config_test-ViT_XS.yaml
 #sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" test_2
 #sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" test_3
 #sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" train_1
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" train_2
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" train_3
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_1
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_2
-sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_3
+#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" train_2
+#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" train_3
+#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_1
+#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_2
+#sh TrainEval.sh "$EXPERIMENT_NAME" "$MODEL_NAME" val_3

@@ -48,7 +48,7 @@ class Model(pl.LightningModule):
         self.name = name
         self.table=False
         self.comment_log=""
-        self.atos_masking=config["Atomiser"]["masking"]
+        
 
         
         self.metric_train_AP_per_class = torchmetrics.classification.MultilabelAveragePrecision(self.num_classes, average=None, thresholds=None)
@@ -111,6 +111,14 @@ class Model(pl.LightningModule):
             )
 
         if config["encoder"] == "Atomiser":
+            self.atos_masking=config["Atomiser"]["masking"]
+
+            self.resolutions=torch.from_numpy(np.array([60,10,10,10,20,20,20,10,20,60,60,20]))
+            
+            self.attention_regu=[float(k) for k in config["trainer"]["entropy_coef"] ]
+            self.attention_regu= torch.from_numpy( np.array(self.attention_regu) )
+
+
             self.encoder = Atomiser(
                 config=self.config,
                 transform=self.transform,
@@ -130,10 +138,7 @@ class Model(pl.LightningModule):
                 masking=config["Atomiser"]["masking"]
             )
 
-        self.resolutions=torch.from_numpy(np.array([60,10,10,10,20,20,20,10,20,60,60,20]))
         
-        self.attention_regu=[float(k) for k in config["trainer"]["entropy_coef"] ]
-        self.attention_regu= torch.from_numpy( np.array(self.attention_regu) )
         if config["encoder"] == "ScaleMAE":
             self.encoder=CustomScaleMAE()
             
@@ -164,106 +169,10 @@ class Model(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         img, mask, resolution, labels, _ = batch
         
-        # Disable flash attention to capture attention weights
-        for layer in self.encoder.layers:
-            layer[0].fn.use_flash = False
-        
         y_hat = self.forward(img, mask, resolution, training=True)
         loss = self.loss(y_hat, labels.float())
-        
-        # Calculate entropy normalization coefficient
-        actual_seq_length = 172800
-        effective_tokens = actual_seq_length - actual_seq_length * (self.atos_masking / 100.0)
-        entropy_normalization_coef = np.log(effective_tokens)
-        
-        ent_losses = []
-        
-        for i, layer in enumerate(self.encoder.layers):
-            attn = layer[0].fn.last_attn  # Shape: (B, heads, Nq, Nk)
-            if attn is None:
-                continue
-            
-           
-            
-            # Create a mask for non-zero attention weights
-            # This handles the case where entire rows might be zero due to masking
-            non_zero_mask = attn > 1e-12  # More strict threshold
-            
-            # Only calculate entropy for positions with non-zero attention
-            # Use the mathematical identity: lim(x->0) x*log(x) = 0
-            log_attn = torch.where(
-                non_zero_mask, 
-                torch.log(attn.clamp(min=1e-12)), 
-                torch.tensor(0.0, device=attn.device)
-            )
-            
-            # Calculate entropy: -sum(p * log(p))
-            entropy_per_query = -(attn * log_attn).sum(dim=-1)  # (B, heads, Nq)
-            
-           
-            
-            # Only average over valid queries (those that have at least some attention)
-            # A query is valid if it has any attention weight > threshold
-            valid_queries = attn.sum(dim=-1) > 1e-12  # (B, heads, Nq)
-            
-            if valid_queries.any():
-                # Calculate mean entropy only over valid queries
-                mean_entropy = entropy_per_query[valid_queries].mean()
-            else:
-                # Fallback: if no valid queries, set entropy to 0
-                print(f"  Warning: No valid queries found in layer {i}")
-                mean_entropy = torch.tensor(0.0, device=attn.device)
-            
-
-            
-            # Check for NaN in mean entropy
-            if torch.isnan(mean_entropy):
-                print(f"  ERROR: NaN detected in mean_entropy for layer {i}")
-                mean_entropy = torch.tensor(0.0, device=attn.device)
-
-     
-            
-            # Normalize entropy
-            normalized_entropy = mean_entropy / entropy_normalization_coef
-            
-            
-            
-            # Convert to regularization loss
-            entropy_loss = 1.0 - normalized_entropy
-      
-            
-            # Final NaN check
-            if torch.isnan(entropy_loss):
-                print(f"  ERROR: NaN detected in entropy_loss for layer {i}")
-                entropy_loss = torch.tensor(0.0, device=attn.device, requires_grad=True)
-            
-            #self.log(f"entropy_loss_layer_{i}", entropy_loss.item(),
-            #        on_step=True, on_epoch=False, logger=True, sync_dist=False)
-            
-            # Scale by regularization coefficient
-            if hasattr(self, 'attention_regu') and i < len(self.attention_regu):
-                weighted_loss = self.attention_regu[i] * entropy_loss
-            else:
-                weighted_loss = entropy_loss
-            
-            ent_losses.append(weighted_loss)
-        
-        # Combine entropy losses
-        if ent_losses:
-            loss_ent = torch.stack(ent_losses).sum()
-            
-            # Final check for NaN in total entropy loss
-            if torch.isnan(loss_ent):
-                print("ERROR: NaN detected in total entropy loss")
-                loss_ent = torch.tensor(0.0, device=loss.device, requires_grad=True)
-            
-            #self.log("total_entropy_loss", loss_ent.item(),on_step=True, on_epoch=False, logger=True, sync_dist=False)
-        else:
-            loss_ent = torch.tensor(0.0, device=loss.device, requires_grad=True)
 
         
-        # Add entropy regularization to main loss
-        total_loss = loss + loss_ent
         
         # Update metrics
         self.metric_train_accuracy_per_class.update(y_hat, labels.to(torch.int))
@@ -273,7 +182,7 @@ class Model(pl.LightningModule):
         self.log("train_loss", loss.item(), on_step=False, on_epoch=True, logger=False, sync_dist=False)
         #self.log("train_total_loss", total_loss.item(), on_step=False, on_epoch=True, logger=False, sync_dist=False)
         
-        return total_loss
+        return loss
     
     
         
@@ -311,7 +220,10 @@ class Model(pl.LightningModule):
         
     def validation_step(self, batch, batch_idx,dataloader_idx=0):
         img, mask,resolution, labels, _ = batch
+
+   
         y_hat = self.forward(img,mask,resolution,training=False)
+      
 
         loss = self.loss(y_hat, labels.float())
         
