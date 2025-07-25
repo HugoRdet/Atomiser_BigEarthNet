@@ -5,6 +5,7 @@ key_vast
 key_vast.pub
 */__MACOSX/*
 __MACOSX
+profiling/*
 *.stderr
 *.stdout
 *$py.class
