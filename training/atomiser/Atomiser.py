@@ -257,16 +257,16 @@ class Atomiser(pl.LightningModule):
 
 
 
-    def forward(self, data, mask=None,resolution=None, training=True):
+    def forward(self, data, mask=None,resolution=None,size=None,training=True):
         # Preprocess tokens + mask
       
-        with record_function("Atomizer/process_data"):
-            tokens, tokens_mask = self.transform.process_data(data, mask,resolution)
+        #with record_function("Atomizer/process_data"):
+            
         
 
 
 
-        b = tokens.shape[0]
+        b = data.shape[0]
 
         #if training:
         #    x=sample_tensor_percent(self.latents, 50)
@@ -278,10 +278,7 @@ class Atomiser(pl.LightningModule):
         
         
         # apply mask to tokens
-        tokens_mask = tokens_mask.to(torch.bool)
-        tokens = tokens.masked_fill_(~tokens_mask.unsqueeze(-1), 0.)
-
-        t, m = tokens, tokens_mask
+        
 
 
 
@@ -290,15 +287,22 @@ class Atomiser(pl.LightningModule):
         
 
         for idx_layer,(cross_attn, cross_ff, self_attns) in enumerate(self.layers):
+            
+            permutation=torch.randperm(data.shape[1]).to(int)
+            
+            tmp_data=data[:,permutation[:100000]]
+            tmp_mask=mask[:,permutation[:100000]]
+            
+            tokens, tokens_mask = self.transform.process_data(tmp_data, tmp_mask,resolution,size)
+            
+            tokens_mask = tokens_mask.to(torch.bool)
+            tokens = tokens.masked_fill_(~tokens_mask.unsqueeze(-1), 0.)
+
+            t, m = tokens, tokens_mask
      
             # optionally prune
             
          
-            
-            # cross-attn
-            with record_function("Atomizer/pruning"):
-                if self.masking > 0 and training:
-                    t, m= pruning(tokens, tokens_mask, self.masking)
                 #print(idx_layer,"input tokens shape",t.shape," latent shape",x.shape)
             x = cross_attn(x, context=t, mask=m,id=idx_layer) + x
             

@@ -15,8 +15,9 @@ from .FLAIR_2 import*
 from datetime import datetime, timezone
 import torch.distributed as dist
 import time
+from .lookup_positional import*
 
-
+ 
 def _init_worker(worker_id):
     worker_info = torch.utils.data.get_worker_info()
     ds = worker_info.dataset
@@ -109,6 +110,36 @@ def compute_channel_mean_std_dico(dico_idxs,ds):
 
 
     return stats
+
+import torch
+
+def random_rotate_flip(image: torch.Tensor):
+    """
+    Apply random rotation (0°, 90°, 180°, 270°) and random horizontal/vertical flip
+    to a satellite image of shape [C=12, H=120, W=120].
+
+    Args:
+        image (torch.Tensor): Tensor of shape [12, H, W]
+
+    Returns:
+        torch.Tensor: Transformed image with same shape
+    """
+    assert image.ndim == 3 and image.shape[0] == 12, "Expected shape [12, H, W]"
+
+    # Random rotation: 0, 90, 180, 270 degrees (implemented as number of 90° rotations)
+    k = torch.randint(0, 4, (1,)).item()
+    image = torch.rot90(image, k=k, dims=[1, 2])
+
+    # Random horizontal flip
+    if torch.rand(1) < 0.5:
+        image = torch.flip(image, dims=[2])  # Flip width (left-right)
+
+    # Random vertical flip
+    if torch.rand(1) < 0.5:
+        image = torch.flip(image, dims=[1])  # Flip height (top-bottom)
+
+    return image
+
 
 def compute_channel_mean_std(dico_idxs,ds):
     if dico_idxs!=None:
@@ -362,7 +393,8 @@ class Tiny_BigEarthNet(Dataset):
                  fixed_size=None,
                  fixed_resolution=None,
                  dataset_config=None,
-                 config_model=None):
+                 config_model=None,
+                 look_up=None):
         
         self.file_path = file_path
         self.num_samples = None
@@ -380,6 +412,7 @@ class Tiny_BigEarthNet(Dataset):
         self.wavelengths=torch.zeros(12)
         self.config_model=config_model
         self.nb_tokens=self.config_model["trainer"]["max_tokens"]
+        self.look_up=look_up
 
         self.prepare_band_infos()
         
@@ -424,6 +457,8 @@ class Tiny_BigEarthNet(Dataset):
             band_data=self.bands_info["bands_sen2_info"][band]
             self.bandwidths[idx]=band_data["bandwidth"]
             self.wavelengths[idx]=band_data["central_wavelength"]
+            
+    
 
 
             
@@ -441,7 +476,7 @@ class Tiny_BigEarthNet(Dataset):
 
 
         image = torch.tensor(f[f'image_{idx}'][:]) #14;120;120
-        image =image[2:,:,:]
+        image =random_rotate_flip(image[2:,:,:])
         attention_mask=torch.ones(image.shape)
         label = torch.tensor(f[f'label_{idx}'][:])
         id_img = int(f[f'id_{idx}'][()])
@@ -450,47 +485,93 @@ class Tiny_BigEarthNet(Dataset):
 
         image,attention_mask,new_resolution=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode,f_s=self.fixed_size,f_r=self.fixed_resolution)
 
-        
-
-        if self.model=="Atomiser":
-            #here we do:
-            #   adding the grid coordinates
-            #   adding the central wavelength and bandwidths
-            #
-            image_size=image.shape[-1]
-           
-           
-            axis_pos = torch.linspace(-60 * (10/new_resolution), 60 * (10/new_resolution), steps=image_size)
-            px, py = torch.meshgrid(axis_pos, axis_pos, indexing="ij")  # [size, size]
-            px=repeat(px.unsqueeze(0),"u h w -> (u r) h w",r=12).unsqueeze(-1)
-            py=repeat(py.unsqueeze(0),"u h w -> (u r) h w",r=12).unsqueeze(-1)
-
-            tmp_bandwidths=self.bandwidths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-            tmp_bandwidths=repeat(tmp_bandwidths,"b h w c -> b (h h1) (w w1) c",h1=image_size,w1=image_size)
-
-            tmp_wavelengths=self.wavelengths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-            tmp_wavelengths=repeat(tmp_wavelengths,"b h w c -> b (h h1) (w w1) c",h1=image_size,w1=image_size)
-            
-            image=image.unsqueeze(-1)
-            
-            
-            
-            image=rearrange(image,"b h w c -> (b h w) c")
-            tmp_rand=torch.randperm(image.shape[0])
-            image=image[tmp_rand[:self.nb_tokens]]
-            attention_mask=torch.ones(image.shape)
-            
-            return image,attention_mask,new_resolution, label, id_img
-
-
+        new_size=image.shape[1]
 
         
+        
 
-        return image,attention_mask,new_resolution, label, id_img
+        if self.model == "Atomiser":
+            #12:size:size
+            image_size = image.shape[-1]
+
+            tmp_resolution = int(10.0/new_resolution*1000)
+            resolution_tmp=10.0/new_resolution
+            
+            
+            
+            
+            # Get global offset for this modality
+            global_offset = self.look_up.table[(tmp_resolution, image_size)]
+            
+            p_x=torch.linspace(-image_size/2.0*resolution_tmp,image_size/2.0*resolution_tmp,image_size)
+            p_x=p_x/1200
+            
+            p_y=torch.linspace(-image_size/2.0*resolution_tmp,image_size/2.0*resolution_tmp,image_size)
+            p_y=p_y/1200
+            
+            # Create LOCAL pixel indices (0 to image_size-1)
+            #y_indices, x_indices = torch.meshgrid(
+            #    torch.arange(image_size), 
+            #    torch.arange(image_size), 
+            #    indexing="ij"
+            #)
+            
+            # Create LOCAL pixel indices (0 to image_size-1)
+            y_indices, x_indices = torch.meshgrid(
+                p_x,
+                p_y,
+                indexing="ij"
+            )
+            
+            # Convert to GLOBAL indices by adding offset
+            #x_indices = x_indices + global_offset
+            #y_indices = y_indices + global_offset
+            
+            # Expand for all bands
+            x_indices = repeat(x_indices.unsqueeze(0), "u h w -> (u r) h w", r=12).unsqueeze(-1)
+            y_indices = repeat(y_indices.unsqueeze(0), "u h w -> (u r) h w", r=12).unsqueeze(-1)
+            
+            # Prepare other token data
+            tmp_bandwidths = repeat(
+                self.bandwidths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1),
+                "b h w c -> b (h h1) (w w1) c", h1=image_size, w1=image_size
+            )
+            tmp_wavelengths = repeat(
+                self.wavelengths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1),
+                "b h w c -> b (h h1) (w w1) c", h1=image_size, w1=image_size
+            )
+            
+            # Concatenate all token data
+            image = torch.cat([
+                image.unsqueeze(-1),      # Band values
+                x_indices.float(),        # Global X indices
+                y_indices.float(),        # Global Y indices  
+                tmp_bandwidths,           # Bandwidths
+                tmp_wavelengths,          # Wavelengths
+            ], dim=-1)
+            
+            # Reshape and sample tokens
+            image = rearrange(image, "b h w c -> (b h w) c")
+            tmp_rand = torch.randperm(image.shape[0])
+            image = image[tmp_rand[:self.nb_tokens]]
+            attention_mask = torch.ones(image.shape[0])
+            
+            # Handle padding if needed
+            if image.shape[0] < self.nb_tokens:
+                padding_tokens = repeat(
+                    image[0].clone().unsqueeze(0),
+                    "n d -> (n r) d", r=self.nb_tokens-image.shape[0]
+                )
+                padding_mask = torch.zeros((self.nb_tokens-image.shape[0]))
+                
+                image = torch.cat([image, padding_tokens], dim=0)
+                attention_mask = torch.cat([attention_mask, padding_mask], dim=0)
+            
+            return image, attention_mask, new_resolution, new_size, label, id_img
+        
+        return image, attention_mask, new_resolution, new_size, label, id_img
     
-    def Sampler_building(self, idx, mode="train"):
-
-        return self.shapes[idx]
+  
     
 
 import torch
@@ -602,7 +683,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
                 modality=None,
                 ds=None,
                 dataset_config=None,
-                config_model=None):
+                config_model=None,
+                look_up=None):
         super().__init__()
         self.train_file = path + "_train.h5"
         self.val_file = path + "_validation.h5"
@@ -615,6 +697,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         self.trans_tokens=trans_tokens
         self.dataset_config=dataset_config
         self.config_model=config_model
+        self.look_up=look_up
         
  
 
@@ -630,7 +713,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             model=self.model,
             mode="train",
             dataset_config=self.dataset_config,
-            config_model=self.config_model
+            config_model=self.config_model,
+            look_up=self.look_up
         )
 
             
@@ -641,7 +725,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             model=self.model,
             mode="validation",
             dataset_config=self.dataset_config,
-            config_model=self.config_model
+            config_model=self.config_model,
+            look_up=self.look_up
         )
 
         self.val_dataset_mode_train = Tiny_BigEarthNet(
@@ -651,7 +736,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             model=self.model,
             mode="validation",
             dataset_config=self.dataset_config,
-            config_model=self.config_model
+            config_model=self.config_model,
+            look_up=self.look_up
         )
 
         self.val_dataset_mode_train.modality_mode="train"
@@ -667,7 +753,8 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             mode="test",
             modality_mode=self.modality,
             dataset_config=self.dataset_config,
-            config_model=self.config_model
+            config_model=self.config_model,
+            look_up=self.look_up
         )
 
         if self.modality!=None:

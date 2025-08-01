@@ -34,14 +34,14 @@ import random
 import argparse
 
 # instantiate the PyTorchProfiler
-profiler = PyTorchProfiler(
-    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-    record_shapes=True,
-    profile_memory=True,
-    export_to_chrome=True,       # dumps a trace.json for Chrome/TensorBoard
-    dirpath="profiling",         # where to write trace.json
-    filename="trace"             # will produce "profiling/trace.json"
-)
+#profiler = PyTorchProfiler(
+#    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+#    record_shapes=True,
+#    profile_memory=True,
+#    export_to_chrome=True,       # dumps a trace.json for Chrome/TensorBoard
+#    dirpath="profiling",         # where to write trace.json
+#    filename="trace"             # will produce "profiling/trace.json"
+#)
 
 # Create the parser
 parser = argparse.ArgumentParser(description="Training script")
@@ -54,19 +54,19 @@ xp_name = args.xp_name
 config_model = read_yaml("./training/configs/" + args.config_model)
 configs_dataset = f"./data/Tiny_BigEarthNet/configs_dataset_{args.dataset_name}.yaml"
 bands_yaml       = "./data/bands_info/bands.yaml"
-
+lookup_table=Lookup_positional_encoding(read_yaml(configs_dataset))
 modalities_trans = modalities_transformations_config(configs_dataset,model=config_model["encoder"], name_config=args.dataset_name)
-test_conf        = transformations_config(bands_yaml, config_model)
+test_conf        = transformations_config(bands_yaml, config_model,lookup_table=lookup_table)
 
 wandb_logger = None
 if os.environ.get("LOCAL_RANK", "0") == "0":
     import wandb
     wandb.init(
         name=config_model["encoder"],
-        project="Atomizer_BigEarthNet",
+        project="Atomizer_BigEarthNet_debug",
         config=config_model
     )
-    wandb_logger = WandbLogger(project="Atomizer_BigEarthNet")
+    wandb_logger = WandbLogger(project="Atomizer_BigEarthNet_debug")
 
 model = Model(
     config_model,
@@ -83,7 +83,8 @@ data_module = Tiny_BigEarthNetDataModule(
     trans_tokens=None,
     model=config_model["encoder"],
     dataset_config=read_yaml(bands_yaml),
-    config_model=config_model
+    config_model=config_model,
+    look_up=lookup_table
 )
 
 # Callbacks
@@ -108,7 +109,7 @@ accumulator = GradientAccumulationScheduler(scheduling={0:64})
 # Trainer
 trainer = Trainer(
     strategy="ddp",
-    devices=[1],
+    devices=-1,
     max_epochs=config_model["trainer"]["epochs"],
     accelerator="gpu",
     precision="bf16-mixed",
@@ -116,8 +117,8 @@ trainer = Trainer(
     log_every_n_steps=5,
     callbacks=[checkpoint_val_mod_train, accumulator],
     default_root_dir="./checkpoints/",
-    profiler=profiler,           # ← attach the PyTorchProfiler here
-    limit_val_batches=100
+    #profiler=profiler,           # ← attach the PyTorchProfiler here
+    #limit_val_batches=100
 )
 
 # Fit the model
