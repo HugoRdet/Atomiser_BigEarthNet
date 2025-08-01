@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 wandb/*
+data/Tiny_BigEarthNet/transformations/*
+*.mdb
+*.parquet
 key_vast
 key_vast.pub
 */__MACOSX/*
@@ -190,3 +193,5 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 wandb/
+ziLcChuT
+.nfs000000002388237300000378
