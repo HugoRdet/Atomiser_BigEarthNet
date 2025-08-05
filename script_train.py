@@ -87,15 +87,7 @@ data_module = Tiny_BigEarthNetDataModule(
     look_up=lookup_table
 )
 
-# Callbacks
-checkpoint_val_mod_val = ModelCheckpoint(
-    dirpath="./checkpoints/",
-    filename=f"{config_model['encoder']}{xp_name}-best_val_mod_val-{{epoch:02d}}-{{val_mod_val_ap:.4f}}",
-    monitor="val_mod_val_ap",
-    mode="max",
-    save_top_k=1,
-    verbose=True,
-)
+
 checkpoint_val_mod_train = ModelCheckpoint(
     dirpath="./checkpoints/",
     filename=f"{config_model['encoder']}{xp_name}-best_val_mod_train-{{epoch:02d}}-{{val_mod_train_ap:.4f}}",
@@ -118,7 +110,6 @@ trainer = Trainer(
     callbacks=[checkpoint_val_mod_train, accumulator],
     default_root_dir="./checkpoints/",
     #profiler=profiler,           # ← attach the PyTorchProfiler here
-    #limit_val_batches=100
 )
 
 # Fit the model

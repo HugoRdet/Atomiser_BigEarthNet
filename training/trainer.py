@@ -153,11 +153,11 @@ class Model(pl.LightningModule):
             return self.encoder(x,mask,resolution,size,training=training)
         else:
             if "Perceiver" in self.config["encoder"]:
-                tmp_resolutions=20/resolution#self.resolutions/resolution
+                tmp_resolutions=10/resolution#self.resolutions/resolution
                 return self.encoder(x,res=tmp_resolutions,mask=mask)
             
             elif "ScaleMAE" in self.config["encoder"]:
-                tmp_resolutions=20/resolution#self.resolutions/resolution
+                tmp_resolutions=10/resolution#self.resolutions/resolution
                 return self.encoder(x,res=tmp_resolutions)
             
       

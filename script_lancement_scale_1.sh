@@ -8,7 +8,7 @@ module load conda
 conda activate venv
 
 
-sh TrainEval.sh test_Atos_lancement_scale config_test-ScaleMAE.yaml full
+sh TrainEval.sh test_Atos_lancement_scale config_test-ScaleMAE.yaml regular
 
 
 

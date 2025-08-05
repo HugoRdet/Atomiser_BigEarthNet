@@ -279,16 +279,8 @@ class Atomiser(pl.LightningModule):
         # initialize latents
         x = repeat(x, 'n d -> b n d', b=b)
         
+    
         
-        # apply mask to tokens
-        
-
-
-
-        
-        
-        
-
         for idx_layer,(cross_attn, cross_ff, self_attns) in enumerate(self.layers):
             
             #permutation=torch.randperm(data.shape[1]).to(int)
@@ -296,8 +288,8 @@ class Atomiser(pl.LightningModule):
             #tmp_data=data[:,permutation[:30000]]
             #tmp_mask=mask[:,permutation[:30000]]
             
-            t=tokens
-            m=tokens_mask
+            t=tokens.clone()
+            m=tokens_mask.clone()
             if self.masking > 0 and training:
                 t, m = pruning(t,m,self.masking)
             

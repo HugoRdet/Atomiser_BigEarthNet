@@ -107,6 +107,7 @@ def change_size(img,mask,coordinates):
     padded_img[:,padding_size:-padding_size,padding_size:-padding_size]=new_img
     mask[:,:,:]=1.0
     mask[:,padding_size:-padding_size,padding_size:-padding_size]=0.0
+    
     return padded_img,mask
 
 def random_value_from_range(min_value, max_value, step):
@@ -161,7 +162,7 @@ def apply_dico_transformations(img,dico,keep_shape=True):
 
     for key in dico:
         if key=="size":
-            img=change_size(img,dico[key]["target_size"],padding=keep_shape)
+            img=change_size(img,dico[key]["target_size"])
         if key=="resolution":
             img=change_resolution(img,dico[key]["target_resolution"])
         if key=="bands":

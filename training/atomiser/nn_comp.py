@@ -25,8 +25,10 @@ class PreNorm(nn.Module):
         self.norm = nn.LayerNorm(dim)
         self.fn = fn
         self.norm_context = nn.LayerNorm(context_dim) if exists(context_dim) else None
+        self.fn_type = type(fn).__name__
 
     def forward(self, x, **kwargs):
+        
         x = self.norm(x)
         if exists(self.norm_context) and 'context' in kwargs:
             ctx = kwargs['context']
@@ -140,24 +142,26 @@ class CrossAttention(nn.Module):
         # Store dropout separately for manual attention
         self.dropout = nn.Dropout(dropout)
         
-        # Will hold the last attention weights (manual path only)
-        self.last_attn = None
+        
         
     def forward(self, x, context, mask=None,id=0):
         B, Nq, _ = x.shape
         Nk = context.shape[1]
+        
+        
         
         # 1) Project Q, K, V
         q = self.to_q(x)  # (B, Nq, inner)
         #k = self.to_k(context)  # (B, Nk, 2·inner)
         k=None
 
-        if id>0:
-            context_k=context.clone()
-            context_k[:,:,:129]=0.0
-            k = self.to_k(context_k)  # each (B, Nk, inner)
-        else:
-            k=self.to_k(context)
+        #qif id>0:
+        #    context_k=context.clone()
+        #    context_k[:,:,:129]=0.0
+        #    k = self.to_k(context_k)  # each (B, Nk, inner)
+        #else:
+        k=self.to_k(context)
+            
         v = self.to_v(context)  # each (B, Nk, inner)
         
         # 2) Split heads
@@ -165,63 +169,23 @@ class CrossAttention(nn.Module):
         k = rearrange(k, "b n (h d) -> b h n d", h=self.heads)
         v = rearrange(v, "b n (h d) -> b h n d", h=self.heads)
         
-        if self.use_flash:
-            # FLASH path: no ability to grab attention weights
-            attn_mask = None
-            if mask is not None:
-                # mask should be (B, Nq, Nk) - True for valid positions
-                if mask.dim() == 2:
-                    # If mask is (B, Nk), expand to (B, Nq, Nk)
-                    mask = mask.unsqueeze(1).expand(-1, Nq, -1)
-                attn_mask = mask.unsqueeze(1).expand(-1, self.heads, -1, -1)
+        # FLASH path: no ability to grab attention weights
+        attn_mask = None
+        if mask is not None:
+            # mask should be (B, Nq, Nk) - True for valid positions
+            if mask.dim() == 2:
+                # If mask is (B, Nk), expand to (B, Nq, Nk)
+                mask = mask.unsqueeze(1).expand(-1, Nq, -1)
+            attn_mask = mask.unsqueeze(1).expand(-1, self.heads, -1, -1)
+        
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=attn_mask,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=False
+        )
+        self.last_attn = None
             
-            out = F.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=attn_mask,
-                dropout_p=self.dropout.p if self.training else 0.0,
-                is_causal=False
-            )
-            self.last_attn = None
-            
-        else:
-            # MANUAL path: compute attention, stash weights, then apply to values
-            sim = torch.einsum("b h i d, b h j d -> b h i j", q, k) * self.scale
-            
-            
-            
-            if mask is not None:
-                # mask should be (B, Nq, Nk) - True for valid positions
-                if mask.dim() == 2:
-                    # If mask is (B, Nk), expand to (B, Nq, Nk)
-                    mask = mask.unsqueeze(1).expand(-1, Nq, -1)
-                # Expand for heads: (B, 1, Nq, Nk) -> (B, heads, Nq, Nk)
-                mask = mask.unsqueeze(1).expand(-1, self.heads, -1, -1)
-                sim = sim.masked_fill(~mask, float("-inf"))
-                
-
-            
-            
-            
-            attn = sim.softmax(dim=-1)  # (B, heads, Nq, Nk)
-            
-            
-            
-            # Apply dropout to attention weights
-            attn = self.dropout(attn)
-            
-            # IMPORTANT: Zero out attention scores for masked positions
-            # This ensures masked tokens don't contribute to entropy calculations  
-            if mask is not None:
-                attn = attn * mask.float()
-                # Renormalize to ensure rows sum to 1
-                attn_sum = attn.sum(dim=-1, keepdim=True).clamp(min=1e-9)
-                attn = attn / attn_sum
-            
-            # Apply attention to values
-            out = torch.einsum("b h i j, b h j d -> b h i d", attn, v)
-            
-            # Store attention weights for inspection/entropy calculation
-            self.last_attn = attn.detach()  # Now contains zeros for masked positions
         
         # 3) Recombine heads and project
         out = rearrange(out, "b h n d -> b n (h d)")

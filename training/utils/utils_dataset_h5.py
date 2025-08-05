@@ -19,7 +19,7 @@ from .lookup_positional import*
 
  
 
-class Tiny_BigEarthNet_tmp(Dataset):
+class Tiny_BigEarthNet(Dataset):
     def __init__(self, file_path, 
                  transform,
                  transform_tokens=None,
@@ -182,6 +182,10 @@ class Tiny_BigEarthNet_tmp(Dataset):
             )
             
             
+            
+            
+            
+            
             # Concatenate all token data
             image = torch.cat([
                 image.unsqueeze(-1),      # Band values
@@ -229,125 +233,3 @@ class Tiny_BigEarthNet_tmp(Dataset):
 
 
 
-
-
-class Tiny_BigEarthNet(Dataset):
-    def __init__(self, file_path, 
-                 transform,
-                 transform_tokens=None,
-                 model="None",
-                 mode="train",
-                 modality_mode=None,
-                 fixed_size=None,
-                 fixed_resolution=None,
-                 dataset_config=None,
-                 config_model=None,
-                 look_up=None):
-        
-        self.file_path = file_path
-        self.num_samples = None
-        self.mode=mode
-        self.shapes=[]
-        self._initialize_file()
-        self.transform=transform
-        self.model=model
-        self.transform_tokens=transform_tokens
-        self.original_mode=mode
-        self.fixed_size=fixed_size
-        self.fixed_resolution=fixed_resolution
-        self.bands_info=dataset_config
-        self.bandwidths=torch.zeros(12)
-        self.wavelengths=torch.zeros(12)
-        self.config_model=config_model
-        self.nb_tokens=self.config_model["trainer"]["max_tokens"]
-        self.look_up=look_up
-
-        self.prepare_band_infos()
-        
-
-        if modality_mode==None:
-            self.modality_mode=mode
-            self.original_mode=mode
-        else:
-            self.modality_mode=modality_mode
-            self.original_mode=modality_mode
-
-        self.h5=None
-
-
-
-
-    def _initialize_file(self):
-     
-        with h5py.File(self.file_path, 'r') as f:
-            self.num_samples = len(f.keys()) // 6  # Nombre d'échantillons
-
-            #for idx in range(self.num_samples):
-            #    shape_key = int(f[f'shape_{self.mode}_{idx}'][()])
-            #    self.shapes.append(shape_key)
-
-
-  
-
-    def __len__(self):
-        return self.num_samples
-    
-
-    def set_modality_mode(self,mode):
-        self.modality_mode=mode
-
-    def reset_modality_mode(self):
-        self.modality_mode=self.original_mode
-
-    def prepare_band_infos(self):
-        
-        for idx,band in enumerate(self.bands_info["bands_sen2_info"]):
-            band_data=self.bands_info["bands_sen2_info"][band]
-            self.bandwidths[idx]=band_data["bandwidth"]
-            self.wavelengths[idx]=band_data["central_wavelength"]
-            
-    
-
-
-            
-
-    def __getitem__(self, idx):
-
-
-        image=None
-        label=None
-        id_img=None
-
-
-
-        f = self.h5
-
-
-        image = torch.tensor(f[f'image_{idx}'][:]) #14;120;120
-        image =random_rotate_flip(image[2:,:,:])
-        attention_mask=torch.ones(image.shape)
-        label = torch.tensor(f[f'label_{idx}'][:])
-        id_img = int(f[f'id_{idx}'][()])
-
-
-
-        image,attention_mask,new_resolution=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode,f_s=self.fixed_size,f_r=self.fixed_resolution)
-
-        new_size=image.shape[1]
-
-        
-        
-
-        if self.model == "Atomiser":
-            
-            
-            
-            
-            
-            return image, attention_mask, new_resolution, new_size, label, id_img
-        
-        
-        return image, attention_mask, new_resolution, new_size, label, id_img
-    
-  
-    
