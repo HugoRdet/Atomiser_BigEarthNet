@@ -235,6 +235,8 @@ class modalities_transformations_config:
             resolution_change=float(transfos["resolution"])
             new_resolution=int(img.shape[1]*float(transfos["resolution"]))
             img,mask=change_resolution(img=img,mask=mask,target_size=new_resolution)
+            
+        
 
         
 
@@ -243,15 +245,10 @@ class modalities_transformations_config:
             if type(transfos["size"])==float:
                 if transfos["size"]<1:
                     transfo_val=change_size_get_only_coordinates(120,int(120*transfos["size"]),center=True)
-                    if self.model=="Atomiser":
-                        img,mask=change_size(img,mask,transfo_val,crop=True)
-                    else:
-                        img,mask=change_size(img,mask,transfo_val)
+                    img,mask=change_size(img,mask,transfo_val)
             else:
-                if self.model=="Atomiser":
-                    img,mask=change_size(img,mask,transfos["size"],crop=True)
-                else:
-                    img,mask=change_size(img,mask,transfos["size"])
+                img,mask=change_size(img,mask,transfos["size"])
+
 
         if "remove"in transfos:
             img,mask=remove_bands(img,mask,self.get_channels_from_froup(transfos["remove"]))

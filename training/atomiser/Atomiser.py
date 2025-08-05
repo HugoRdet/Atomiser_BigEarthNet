@@ -104,14 +104,12 @@ def pruning(tokens: torch.Tensor,
     #num_valid = valid_idx.size(0)
     num_keep  = max(1, int(N * keep_frac))
 
-    with record_function("Atomizer/pruning/randperm"):
-        perm      = torch.randperm(N, device=device)
-        kept_perm = perm[:num_keep]                   
-        #keep_idx  = valid_idx[kept_perm]             
+    perm      = torch.randperm(N, device=device)
+    kept_perm = perm[:num_keep]                   
+    #keep_idx  = valid_idx[kept_perm]             
 
-    with record_function("Atomizer/pruning/indexing"):
-        pruned_tokens        = tokens[:, kept_perm, :].clone()      
-        pruned_attention_mask= attention_mask[:, kept_perm].clone()    
+    pruned_tokens        = tokens[:, kept_perm, :].clone()      
+    pruned_attention_mask= attention_mask[:, kept_perm].clone()    
 
     return pruned_tokens, pruned_attention_mask
 
@@ -261,6 +259,11 @@ class Atomiser(pl.LightningModule):
         # Preprocess tokens + mask
       
         #with record_function("Atomizer/process_data"):
+        
+        tokens, tokens_mask = self.transform.process_data(data, mask,resolution,size)
+            
+        tokens_mask = tokens_mask.to(torch.bool)
+        tokens = tokens.masked_fill_(tokens_mask.unsqueeze(-1), 0.)
             
         
 
@@ -288,18 +291,17 @@ class Atomiser(pl.LightningModule):
 
         for idx_layer,(cross_attn, cross_ff, self_attns) in enumerate(self.layers):
             
-            permutation=torch.randperm(data.shape[1]).to(int)
+            #permutation=torch.randperm(data.shape[1]).to(int)
             
-            tmp_data=data[:,permutation[:100000]]
-            tmp_mask=mask[:,permutation[:100000]]
+            #tmp_data=data[:,permutation[:30000]]
+            #tmp_mask=mask[:,permutation[:30000]]
             
-            tokens, tokens_mask = self.transform.process_data(tmp_data, tmp_mask,resolution,size)
+            t=tokens
+            m=tokens_mask
+            if self.masking > 0 and training:
+                t, m = pruning(t,m,self.masking)
             
-            tokens_mask = tokens_mask.to(torch.bool)
-            tokens = tokens.masked_fill_(~tokens_mask.unsqueeze(-1), 0.)
-
-            t, m = tokens, tokens_mask
-     
+            
             # optionally prune
             
          
