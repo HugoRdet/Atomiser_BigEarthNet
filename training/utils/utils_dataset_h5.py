@@ -206,7 +206,7 @@ class Tiny_BigEarthNet(Dataset):
        
             tmp_rand = torch.randperm(image.shape[0])
             image = image[tmp_rand[:self.nb_tokens]]
-            attention_mask = torch.ones(image.shape[0])
+            attention_mask = torch.zeros(image.shape[0])
             
             
             

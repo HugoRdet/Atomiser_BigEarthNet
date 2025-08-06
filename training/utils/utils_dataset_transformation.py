@@ -596,8 +596,8 @@ class transformations_config(nn.Module):
             res = self.s2_res
 
             tmp_bandwidth, tmp_central_wavelength = self.s2_waves
-
-  
+            
+        
 
 
         #tokens of shape [batch,nb_tokens,5]

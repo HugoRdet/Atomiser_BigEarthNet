@@ -264,10 +264,6 @@ class Atomiser(pl.LightningModule):
             
         tokens_mask = tokens_mask.to(torch.bool)
         tokens = tokens.masked_fill_(tokens_mask.unsqueeze(-1), 0.)
-            
-        
-
-
 
         b = data.shape[0]
 
@@ -283,27 +279,12 @@ class Atomiser(pl.LightningModule):
         
         for idx_layer,(cross_attn, cross_ff, self_attns) in enumerate(self.layers):
             
-            #permutation=torch.randperm(data.shape[1]).to(int)
+            permutation=torch.randperm(tokens.shape[1]).to(int)
+            tmp_data=tokens[:,permutation[:30000]].clone()
+            tmp_mask=tokens_mask[:,permutation[:30000]].clone()
             
-            #tmp_data=data[:,permutation[:30000]]
-            #tmp_mask=mask[:,permutation[:30000]]
-            
-            t=tokens.clone()
-            m=tokens_mask.clone()
-            if self.masking > 0 and training:
-                t, m = pruning(t,m,self.masking)
-            
-            
-            # optionally prune
-            
-         
-                #print(idx_layer,"input tokens shape",t.shape," latent shape",x.shape)
-            x = cross_attn(x, context=t, mask=m,id=idx_layer) + x
-            
-            
-         
-
-          
+           
+            x = cross_attn(x, context=tmp_data, mask=tmp_mask,id=idx_layer) + x  
             x = cross_ff(x) + x
    
             # restore tokens if pruned
