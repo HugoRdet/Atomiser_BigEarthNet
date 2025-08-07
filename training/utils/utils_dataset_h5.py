@@ -165,17 +165,14 @@ class Tiny_BigEarthNet(Dataset):
             x_indices = repeat(x_indices.unsqueeze(0), "u h w -> (u r) h w", r=channels_size).unsqueeze(-1)
             y_indices = repeat(y_indices.unsqueeze(0), "u h w -> (u r) h w", r=channels_size).unsqueeze(-1)
             
-            # Prepare other token data
-            tmp_bandwidths = repeat(
-                self.bandwidths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1),
-                "b h w c -> b (h h1) (w w1) c", h1=image_size, w1=image_size
-            )
-            tmp_wavelengths = repeat(
-                self.wavelengths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1),
-                "b h w c -> b (h h1) (w w1) c", h1=image_size, w1=image_size
-            )
             
+            idxs_bandwidths = []
             
+            for idx_b in range(self.bandwidths.shape[0]):
+                idxs_bandwidths.append(self.look_up.table_wave[(int(self.bandwidths[idx_b].item()), int(self.wavelengths[idx_b].item()))])
+                
+            idxs_bandwidths = torch.tensor(idxs_bandwidths).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+            idxs_bandwidths = repeat(idxs_bandwidths, "b h w c -> b (h h1) (w w1) c", h1=image_size, w1=image_size)
             
             
             
@@ -184,35 +181,50 @@ class Tiny_BigEarthNet(Dataset):
                 image.unsqueeze(-1),      # Band values
                 x_indices.float(),        # Global X indices
                 y_indices.float(),        # Global Y indices  
-                tmp_bandwidths,           # Bandwidths
-                tmp_wavelengths,          # Wavelengths
+                idxs_bandwidths.float()  # Bandwidth indices
             ], dim=-1)
             
             
             # Reshape and sample tokens
             image = rearrange(image, "b h w c -> (b h w) c")
-            
             attention_mask= rearrange(attention_mask, "c h w -> (c h w)")
             image=image[attention_mask==0.0]
+            tmp_rand = torch.randperm(image.shape[0])
+            image = image[tmp_rand[:self.nb_tokens]]
             attention_mask=torch.zeros(image.shape[0])
        
-            #tmp_rand = torch.randperm(image.shape[0])
-            #image = image[tmp_rand[:self.nb_tokens]]
             
             
             
             
-            # Handle padding if needed
-            if image.shape[0] < self.nb_tokens:
-                
-                padding_tokens = repeat(
-                    torch.zeros(image[0].shape).unsqueeze(0),
-                    "n d -> (n r) d", r=self.nb_tokens-image.shape[0]
-                )
-                padding_mask = torch.ones((self.nb_tokens-image.shape[0]))
-                
-                image = torch.cat([image, padding_tokens], dim=0)
-                attention_mask = torch.cat([attention_mask, padding_mask], dim=0)
+            
+            current_len = image.shape[0]
+            target_len = self.nb_tokens
+
+            if current_len < target_len:
+                # Repeat full image as many times as needed
+                repeat_factor = target_len // current_len
+                remainder = target_len % current_len
+
+                repeated_image = image.repeat((repeat_factor, 1))  # [repeat_factor * d, 4]
+                if remainder > 0:
+                    remainder_image = image[:remainder]            # [remainder, 4]
+                    image = torch.cat([repeated_image, remainder_image], dim=0)
+                else:
+                    image = repeated_image
+
+                # Repeat the attention mask the same way
+                repeated_mask = attention_mask.repeat(repeat_factor)
+                if remainder > 0:
+                    remainder_mask = attention_mask[:remainder]
+                    attention_mask = torch.cat([repeated_mask, remainder_mask], dim=0)
+                else:
+                    attention_mask = repeated_mask
+
+            # If needed, truncate in case of over-padding (not likely but safe)
+            image = image[:target_len]
+            attention_mask = attention_mask[:target_len]
+
                 
             
             

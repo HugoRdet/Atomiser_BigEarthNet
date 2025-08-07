@@ -54,7 +54,7 @@ xp_name = args.xp_name
 config_model = read_yaml("./training/configs/" + args.config_model)
 configs_dataset = f"./data/Tiny_BigEarthNet/configs_dataset_{args.dataset_name}.yaml"
 bands_yaml       = "./data/bands_info/bands.yaml"
-lookup_table=Lookup_positional_encoding(read_yaml(configs_dataset))
+lookup_table=Lookup_encoding(read_yaml(configs_dataset),read_yaml(bands_yaml))
 modalities_trans = modalities_transformations_config(configs_dataset,model=config_model["encoder"], name_config=args.dataset_name)
 test_conf=None
 if config_model["encoder"] == "Atomiser_tradi":

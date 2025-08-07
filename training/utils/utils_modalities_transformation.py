@@ -213,7 +213,6 @@ class modalities_transformations_config:
         This is the function you should call in the get_item
         """
         
-        return img,mask,1.0
       
 
         if modality_mode==None:

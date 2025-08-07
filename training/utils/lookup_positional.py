@@ -1,18 +1,20 @@
 import torch
 import pytorch_lightning as pl
 
-class Lookup_positional_encoding(pl.LightningModule):
+class Lookup_encoding(pl.LightningModule):
 
 
-    def __init__(self, modalities_config):
+    def __init__(self, modalities_config,bands_info):
         super().__init__()
         self.config= modalities_config
+        self.bands_info=bands_info
         self.modalities=None
         self.table=None
+        self.table_wave=None
 
         self.init_config()
         self.init_lookup_table()
-        
+        self.init_lookup_table_wave()
 
     def init_config(self):
         modalities=[]
@@ -53,6 +55,29 @@ class Lookup_positional_encoding(pl.LightningModule):
                    
         
         self.table=table
+        
+    def init_lookup_table_wave(self):
+        table=dict()
+        idx_torch_array=0
+            
+        for sat in self.bands_info:
+            sat_content=self.bands_info[sat]
+            for band in sat_content:
+                
+                band_content=sat_content[band]
+                
+                if not "bandwidth" in band_content or not "central_wavelength" in band_content:
+                    continue
+                
+                bandwidth=band_content["bandwidth"]
+                central_wavelength=band_content["central_wavelength"]
+                table[(int(bandwidth),int(central_wavelength))]=idx_torch_array
+                idx_torch_array+=1
+                
+            
+                   
+        
+        self.table_wave=table
 
         
         

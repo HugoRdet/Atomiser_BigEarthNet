@@ -279,6 +279,31 @@ class transformations_config(nn.Module):
         # Store the global encoding
         setattr(self, cache_key, global_encoding)
         
+    def get_wavelength_encoding(
+        self,
+        token_data: torch.Tensor,  # [batch, tokens, data] 
+        device=None
+    ):
+        
+       
+        
+        # Create cache key based on encoding parameters only
+        cache_key = f"wavelength_encoding_gaussian"
+        
+        # Check if we have cached encodings
+        if not hasattr(self, cache_key):
+            self._precompute_global_wavelength_encodings(device)
+        
+        cached_encoding = getattr(self, cache_key)  # [total_positions, num_gaussians]
+        
+        
+        global_x_indices = token_data.long()  # [batch, tokens]
+        encoding_wavelengths = cached_encoding[global_x_indices]  # [batch, tokens, num_gaussians]
+       
+        
+            
+        return encoding_wavelengths
+        
     def get_fourrier_encoding(
         self,
         token_data: torch.Tensor,  # [batch, tokens, data] 
@@ -397,6 +422,33 @@ class transformations_config(nn.Module):
         
         # Store the global encoding
         cache_key = f"positional_encoding_fourrier"
+        setattr(self, cache_key, global_encoding)
+        
+    def _precompute_global_wavelength_encodings(self, device):
+        """
+        Precompute fourrier encodings for ALL possible pixel positions across all modalities.
+        This creates a single global lookup table.
+        """
+        
+        # Get total number of positions from lookup table
+        max_global_index =len(self.lookup_table.table_wave.keys())
+        global_encoding = torch.zeros(max_global_index, 19, device=device)
+        
+        # Compute encodings for each modality and place them at correct global indices
+        for modality in tqdm(self.lookup_table.table_wave.keys(), desc="Precomputing Wavelength encodings"):
+            bandwidth, central_wavelength = modality
+
+
+            encoded=self.compute_gaussian_band_max_encoding([central_wavelength],[bandwidth], num_points=150)
+            id_modality= self.lookup_table.table_wave[(bandwidth, central_wavelength)]
+            
+            
+            
+            # Place encodings at correct global indices
+            global_encoding[id_modality] = encoded[0,0,:]
+        
+        # Store the global encoding
+        cache_key = f"wavelength_encoding_gaussian"
         setattr(self, cache_key, global_encoding)
         
 
@@ -567,7 +619,7 @@ class transformations_config(nn.Module):
         encoded = getattr(self, id_cache)
 
         if encoded is None:
-            encoded=self.compute_gaussian_band_max_encoding(wavelength, bandwidth, num_points=50)
+            encoded=self.compute_gaussian_band_max_encoding([wavelength], [bandwidth], num_points=50)
             
             tmp_wavelength=torch.from_numpy(wavelength).clone().unsqueeze(-1)
             tmp_bandwidth =torch.from_numpy(bandwidth).clone().unsqueeze(-1)
@@ -688,13 +740,9 @@ class transformations_config(nn.Module):
         # 2) Wavelength encoding
         #with record_function("Atomizer/process_data/get_tokens/wavelength_processing"):
 
-        central_wavelength_processing = self.wavelength_processing(
-            im_sen.device,
-            tmp_central_wavelength,
-            tmp_bandwidth,
-            modality=mode,
-            tokens=im_sen
-        )
+        central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device)
+        
+        
         
         #with record_function("Atomizer/process_data/get_tokens/get_bvalue_processing"):
 
@@ -726,12 +774,8 @@ class transformations_config(nn.Module):
             central_wavelength_processing,
             p_x
         ], dim=-1)
+
         
-        
-
-
-      
-
 
 
         return tokens, mask_sen
