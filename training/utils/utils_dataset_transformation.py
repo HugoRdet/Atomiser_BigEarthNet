@@ -49,7 +49,11 @@ class transformations_config(nn.Module):
         self.s2_res_tmp=self.get_resolutions_infos(self.bands_sen2_infos)
         self.register_buffer("positional_encoding_s2", None)
         self.register_buffer('wavelength_processing_s2', None)
+        #self.register_buffer("positional_encoding_fourrier", None)
         self.resolutions_x_sizes_cached={}
+        
+        
+        
 
 
         
@@ -141,36 +145,20 @@ class transformations_config(nn.Module):
 
 
     
-    def pos_encoding(self,img_shape,size,positional_scaling_l=None,max_freq=4,num_bands = 4,device="cpu"):
-        L_pos=[]
-        if positional_scaling_l is None:
-            positional_scaling_l=torch.ones(img_shape[-1])*2.0
+    def pos_encoding(self,size,positional_scaling=None,max_freq=4,num_bands = 4,device="cpu"):
 
-        for idx in range(positional_scaling_l.shape[0]):
-            positional_scaling=positional_scaling_l[idx]
 
-            axis_pos = list(map(lambda size: torch.linspace(-positional_scaling/2.0, positional_scaling/2.0, steps=size,device=device), (size,size)))
-            pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
-            
-            pos=fourier_encode(pos,max_freq=max_freq,num_bands = num_bands)
-
-            pos=einops.rearrange(pos,"h w c f -> h w  (c f) ").unsqueeze(-2)
-            L_pos.append(pos)
-
+        axis = torch.linspace(-positional_scaling/2.0, positional_scaling/2.0, steps=size,device=device)
+        pos=fourier_encode(axis,max_freq=max_freq,num_bands = num_bands)
         
-
-
-        return torch.cat(L_pos,dim=-2)
+        return pos
     
     
-    def get_positional_processing(
+    def get_positional_encoding_fourrier(
         self,
-        img_shape,             # e.g. (B_size, T_size, H, W, C)
-        resolution: torch.Tensor,      # shape [C], base resolution per band
-        resolution_factor: torch.Tensor,  # shape [B_size], factor per sample
-        T_size: int,
-        B_size: int,
-        modality: str,
+        size,             # e.g. (B_size, T_size, H, W, C)
+        resolution: float,      # shape [C], base resolution per band
+        resolution_factor: float,  # shape [B_size], factor per sample
         device
         ):
         """
@@ -178,16 +166,13 @@ class transformations_config(nn.Module):
         resolution: [C]
         resolution_factor: [B_size]
         """
-        # ensure our cache exists
-        if not hasattr(self, "_pos_cache"):
-            self._pos_cache = {}
 
         # spatial size (assume H == W)
-        size = img_shape[-2]  # H
+   
 
         # -- 1) compute per-sample, per-band new resolution: [B, C]
         #    new_res[i, b] = resolution[b] / resolution_factor[i]
-        new_res = resolution[None, :] / resolution_factor[:, None]
+        new_res = resolution / resolution_factor
 
         # -- 2) compute positional scaling per band: [B, C]
         pos_scalings = (size * new_res) / 400.0
@@ -195,47 +180,17 @@ class transformations_config(nn.Module):
         max_freq  = self.config["Atomiser"]["pos_max_freq"]
         num_bands = self.config["Atomiser"]["pos_num_freq_bands"]
 
-        # -- 3) find unique scaling vectors in this batch
-        unique_keys   = []    # list of tuple of floats
-        inverse_idxs  = []    # for each sample, index into unique_keys
-        key_to_index  = {}
-
-        for i in range(B_size):
-            # convert this row to a hashable key
-            key = tuple(float(x) for x in pos_scalings[i].tolist())
-            if key not in key_to_index:
-                key_to_index[key] = len(unique_keys)
-                unique_keys.append(key)
-            inverse_idxs.append(key_to_index[key])
-
-        # -- 4) ensure cache entry per unique key
-        bases = []
-        for key in unique_keys:
-            # augment the key by modality and size to avoid collisions
-            cache_key = (modality, size, key)
-            if cache_key not in self._pos_cache:
-                # build raw encoding: returns [H, W, C, D]
-                raw = self.pos_encoding(
-                    img_shape, size,
-                    positional_scaling_l=torch.tensor(key, device=device),
-                    max_freq=max_freq,
-                    num_bands=num_bands,
-                    device=device
-                )
-                # store with two leading dims [1,1,H,W,C,D]
-                self._pos_cache[cache_key] = raw.unsqueeze(0).unsqueeze(0).to(device)
-            bases.append(self._pos_cache[cache_key])
-
-        # -- 5) assemble final batch: pick the right base + expand T
-        encodings = []
-        for idx in range(B_size):
-            base = bases[inverse_idxs[idx]]        # [1,1,H,W,C,D]
-            enc  = base.expand(1, T_size, *base.shape[2:])  # [1,T,H,W,C,D]
-            encodings.append(enc)
-
-        # [B_size, T_size, H, W, C, D]
-        return torch.cat(encodings, dim=0)
-    
+        
+        
+        raw = self.pos_encoding(
+            size,
+            positional_scaling=pos_scalings,
+            max_freq=max_freq,
+            num_bands=num_bands,
+            device=device
+        )
+        
+        return raw
 
     def get_gaussian_encoding(
         self,
@@ -323,6 +278,126 @@ class transformations_config(nn.Module):
             global_encoding[global_offset:global_offset + image_size] = modality_encoding
         
         # Store the global encoding
+        setattr(self, cache_key, global_encoding)
+        
+    def get_fourrier_encoding(
+        self,
+        token_data: torch.Tensor,  # [batch, tokens, data] 
+        device=None
+    ):
+        """
+        Compute Fourier encoding for tokens with explicit position information.
+
+        Args:
+            token_data: [batch, tokens, data] where:
+                - data[..., 1]: global x-axis pixel index 
+                - data[..., 2]: global y-axis pixel index
+                
+        Returns:
+            responses: [batch, tokens, 2 * num_gaussians]
+        """
+        
+        # Create cache key based on encoding parameters only
+        cache_key = f"positional_encoding_fourrier"
+        
+        # Check if we have cached encodings
+        if not hasattr(self, cache_key):
+            self._precompute_global_fourrier_encodings(device)
+        
+        cached_encoding = getattr(self, cache_key)  # [total_positions, num_gaussians]
+        
+        # Extract global pixel indices from token_data
+        global_x_indices = token_data[..., 1].long()  # [batch, tokens]
+        global_y_indices = token_data[..., 2].long()  # [batch, tokens]
+        
+        # Direct lookup using global indices
+        encoding_x = cached_encoding[global_x_indices]  # [batch, tokens, num_gaussians]
+        encoding_y = cached_encoding[global_y_indices]  # [batch, tokens, num_gaussians]
+        
+        # Concatenate x and y encodings
+        result = torch.cat([encoding_x, encoding_y], dim=-1)  # [batch, tokens, 2*num_gaussians]
+        
+        
+        return result
+
+    def _precompute_global_gaussian_encodings(self, num_gaussians, sigma, device, cache_key):
+        """
+        Precompute Gaussian encodings for ALL possible pixel positions across all modalities.
+        This creates a single global lookup table.
+        """
+        
+        # Get total number of positions from lookup table
+        max_global_index = sum(size for _, size in self.lookup_table.table.keys())
+        
+        # Create Gaussian centers (same for all positions)
+        centers = torch.linspace(-1200.0, 1200.0, num_gaussians, device=device)
+        
+        # Initialize global encoding tensor
+        global_encoding = torch.zeros(max_global_index, num_gaussians, device=device)
+        
+        # Compute encodings for each modality and place them at correct global indices
+        for modality in tqdm(self.lookup_table.modalities, desc="Precomputing Gaussian encodings"):
+            resolution, image_size = modality
+            
+            # Get global offset for this modality
+            
+            
+            
+            modality_key = (int(1000 * resolution), image_size)
+            global_offset = self.lookup_table.table[modality_key]
+            
+            # Create physical coordinates for this modality's pixels
+            physical_coords = torch.linspace(
+                (-image_size/2.) * resolution, 
+                (image_size/2.) * resolution, 
+                steps=image_size, 
+                device=device
+            )
+            
+            # Compute Gaussian encoding for this modality
+            modality_encoding = self._compute_1d_gaussian_encoding_vectorized(
+                physical_coords, resolution/2.0, centers, sigma, device
+            )  # [image_size, num_gaussians]
+            
+            # Place encodings at correct global indices
+            global_encoding[global_offset:global_offset + image_size] = modality_encoding
+        
+        # Store the global encoding
+        setattr(self, cache_key, global_encoding)
+        
+        
+    def _precompute_global_fourrier_encodings(self, device):
+        """
+        Precompute fourrier encodings for ALL possible pixel positions across all modalities.
+        This creates a single global lookup table.
+        """
+        
+        # Get total number of positions from lookup table
+        max_global_index = sum(size for _, size in self.lookup_table.table.keys())
+        
+        # Initialize global encoding tensor
+        num_bands = self.config["Atomiser"]["pos_num_freq_bands"]* 2 + 1
+        global_encoding = torch.zeros(max_global_index, num_bands, device=device)
+        
+        # Compute encodings for each modality and place them at correct global indices
+        for modality in tqdm(self.lookup_table.modalities, desc="Precomputing Gaussian encodings"):
+            resolution, image_size = modality
+            
+            # Get global offset for this modality
+            pos=self.get_positional_encoding_fourrier(image_size,10.0,resolution,device)
+            
+            
+            
+            modality_key = (int(1000 * resolution), image_size)
+            global_offset = self.lookup_table.table[modality_key]
+            
+            
+            
+            # Place encodings at correct global indices
+            global_encoding[global_offset:global_offset + image_size] = pos
+        
+        # Store the global encoding
+        cache_key = f"positional_encoding_fourrier"
         setattr(self, cache_key, global_encoding)
         
 
@@ -621,27 +696,21 @@ class transformations_config(nn.Module):
             tokens=im_sen
         )
         
-        central_wavelength_processing=central_wavelength_processing
-        
         #with record_function("Atomizer/process_data/get_tokens/get_bvalue_processing"):
 
         # 3) Band‑value encoding
         value_processed = self.get_bvalue_processing(im_sen[:,:,0])
         
-        p_x=fourier_encode(im_sen[:,:,1], max_freq=64, num_bands=64)
-        p_y=fourier_encode(im_sen[:,:,2], max_freq=64, num_bands=64)
-        
-        
-
+        #p_x=fourier_encode(im_sen[:,:,1], max_freq=64, num_bands=64)
+        #p_y=fourier_encode(im_sen[:,:,2], max_freq=64, num_bands=64)
+        p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
         
 
+        
+
 
         
-        #with record_function("Atomizer/process_data/get_tokens/get_gaussian_encoding"):
-        #band_post_proc_0=self.get_gaussian_encoding(im_sen,8,100, im_sen.device)
-        #band_post_proc_1=self.get_gaussian_encoding(im_sen,16,40.0, im_sen.device)
-        #band_post_proc_2=self.get_gaussian_encoding(im_sen,32,15.0, im_sen.device)
-        #band_post_proc_3=self.get_gaussian_encoding(im_sen,73,5.0, im_sen.device)
+        
         
         
             
@@ -655,8 +724,7 @@ class transformations_config(nn.Module):
         tokens = torch.cat([
             value_processed,
             central_wavelength_processing,
-            p_x,
-            p_y
+            p_x.zero_()
         ], dim=-1)
         
         

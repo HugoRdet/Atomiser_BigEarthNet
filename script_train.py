@@ -6,7 +6,7 @@ from training.ResNet import *
 from collections import defaultdict
 from training import *
 import os
-
+from sklearn.metrics import average_precision_score
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, GradientAccumulationScheduler
@@ -56,7 +56,11 @@ configs_dataset = f"./data/Tiny_BigEarthNet/configs_dataset_{args.dataset_name}.
 bands_yaml       = "./data/bands_info/bands.yaml"
 lookup_table=Lookup_positional_encoding(read_yaml(configs_dataset))
 modalities_trans = modalities_transformations_config(configs_dataset,model=config_model["encoder"], name_config=args.dataset_name)
-test_conf        = transformations_config(bands_yaml, config_model,lookup_table=lookup_table)
+test_conf=None
+if config_model["encoder"] == "Atomiser_tradi":
+    test_conf        = transformations_config_tradi(bands_yaml, config_model,lookup_table=lookup_table)
+else:
+    test_conf        = transformations_config(bands_yaml, config_model,lookup_table=lookup_table)
 
 wandb_logger = None
 if os.environ.get("LOCAL_RANK", "0") == "0":

@@ -111,8 +111,8 @@ class Tiny_BigEarthNet(Dataset):
         f = self.h5
 
 
-        image = torch.tensor(f[f'image_{idx}'][:]) #14;120;120
-        image =random_rotate_flip(image[2:,:,:])
+        image = torch.tensor(f[f'image_{idx}'][:])[2:,:,:] #14;120;120
+        image =random_rotate_flip(image)
         attention_mask=torch.zeros(image.shape)
         label = torch.tensor(f[f'label_{idx}'][:])
         id_img = int(f[f'id_{idx}'][()])
@@ -136,36 +136,30 @@ class Tiny_BigEarthNet(Dataset):
 
             tmp_resolution = int(10.0/new_resolution*1000)
             resolution_tmp=10.0/new_resolution
+            #print(f"Resolution: {tmp_resolution}, Size: {new_size}, Channels: {channels_size} new resolution: {new_resolution}")
             
             
             
             
             # Get global offset for this modality
-            #global_offset = self.look_up.table[(tmp_resolution, image_size)]
+            global_offset = self.look_up.table[(tmp_resolution, image_size)]
             
-            p_x=torch.linspace(-image_size/2.0*resolution_tmp,image_size/2.0*resolution_tmp,image_size)
-            p_x=p_x/1200
+            #p_x=torch.linspace(-image_size/2.0*resolution_tmp,image_size/2.0*resolution_tmp,image_size)
+            #p_x=p_x/1200
             
-            p_y=torch.linspace(-image_size/2.0*resolution_tmp,image_size/2.0*resolution_tmp,image_size)
-            p_y=p_y/1200
-            
-            # Create LOCAL pixel indices (0 to image_size-1)
-            #y_indices, x_indices = torch.meshgrid(
-            #    torch.arange(image_size), 
-            #    torch.arange(image_size), 
-            #    indexing="ij"
-            #)
+            #p_y=torch.linspace(-image_size/2.0*resolution_tmp,image_size/2.0*resolution_tmp,image_size)
+            #p_y=p_y/1200
             
             # Create LOCAL pixel indices (0 to image_size-1)
-            y_indices, x_indices = torch.meshgrid(
-                p_x,
-                p_y,
-                indexing="ij"
-            )
+            y_indices = torch.arange(image_size).unsqueeze(1).expand(image_size, image_size)
+            x_indices = torch.arange(image_size).unsqueeze(0).expand(image_size, image_size)
+            
+            # Create LOCAL pixel indices (0 to image_size-1)
+            
             
             # Convert to GLOBAL indices by adding offset
-            #x_indices = x_indices + global_offset
-            #y_indices = y_indices + global_offset
+            x_indices = x_indices + global_offset
+            y_indices = y_indices + global_offset
             
             # Expand for all bands
             x_indices = repeat(x_indices.unsqueeze(0), "u h w -> (u r) h w", r=channels_size).unsqueeze(-1)
@@ -180,7 +174,6 @@ class Tiny_BigEarthNet(Dataset):
                 self.wavelengths.clone().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1),
                 "b h w c -> b (h h1) (w w1) c", h1=image_size, w1=image_size
             )
-            
             
             
             
@@ -201,12 +194,11 @@ class Tiny_BigEarthNet(Dataset):
             
             attention_mask= rearrange(attention_mask, "c h w -> (c h w)")
             image=image[attention_mask==0.0]
-              
-            attention_mask=attention_mask[attention_mask==1.0]
+            attention_mask=torch.zeros(image.shape[0])
        
-            tmp_rand = torch.randperm(image.shape[0])
-            image = image[tmp_rand[:self.nb_tokens]]
-            attention_mask = torch.zeros(image.shape[0])
+            #tmp_rand = torch.randperm(image.shape[0])
+            #image = image[tmp_rand[:self.nb_tokens]]
+            
             
             
             

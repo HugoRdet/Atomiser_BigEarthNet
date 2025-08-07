@@ -137,6 +137,32 @@ class Model(pl.LightningModule):
                 final_classifier_head=config["Atomiser"]["final_classifier_head"],
                 masking=config["Atomiser"]["masking"]
             )
+            
+        if config["encoder"] == "Atomiser_tradi":
+            self.atos_masking=config["Atomiser"]["masking"]
+
+            self.resolutions=torch.from_numpy(np.array([60,10,10,10,20,20,20,10,20,60,60,20]))
+            
+            
+
+            self.encoder = Atomiser_tradi(
+                config=self.config,
+                transform=self.transform,
+                depth=config["Atomiser"]["depth"],
+                num_latents=config["Atomiser"]["num_latents"],
+                latent_dim=config["Atomiser"]["latent_dim"],
+                cross_heads=config["Atomiser"]["cross_heads"],
+                latent_heads=config["Atomiser"]["latent_heads"],
+                cross_dim_head=config["Atomiser"]["cross_dim_head"],
+                latent_dim_head=config["Atomiser"]["latent_dim_head"],
+                num_classes=config["trainer"]["num_classes"],
+                attn_dropout=config["Atomiser"]["attn_dropout"],
+                ff_dropout=config["Atomiser"]["ff_dropout"],
+                weight_tie_layers=config["Atomiser"]["weight_tie_layers"],
+                self_per_cross_attn=config["Atomiser"]["self_per_cross_attn"],
+                final_classifier_head=config["Atomiser"]["final_classifier_head"],
+                masking=config["Atomiser"]["masking"]
+            )
 
         
         if config["encoder"] == "ScaleMAE":
@@ -168,14 +194,22 @@ class Model(pl.LightningModule):
             
     def training_step(self, batch, batch_idx):
         img, mask, resolution, size, labels, _ = batch
-        
+
+        #print(f"[DEBUG] inital img diff (sample 0 vs 1): {(img[0,:,0] - img[1,:,0]).abs().mean().item()}, img0 mean: {img[0,:,0].mean().item()}, img0 max: {img[0,:,0].max().item()}, img0 min: {img[0,:,0].min().item()}")
+        #print(f"[DEBUG] inital img diff (sample 0 vs 2): {(img[0,:,0] - img[2,:,0]).abs().mean().item()}, img1 mean: {img[1,:,0].mean().item()}, img1 max: {img[1,:,0].max().item()}, img1 min: {img[1,:,0].min().item()}")
+        #print(f"[DEBUG] inital img diff (sample 0 vs 3): {(img[0,:,0] - img[3,:,0]).abs().mean().item()}, img2 mean: {img[2,:,0].mean().item()}, img2 max: {img[2,:,0].max().item()}, img2 min: {img[2,:,0].min().item()}")
+
         y_hat = self.forward(img, mask, resolution,size, training=True)
         loss = self.loss(y_hat, labels.float())
 
         
-        
         # Update metrics
         #with record_function("metrics computations"):
+        y_hat = torch.sigmoid(y_hat)
+        
+        
+        
+    
         self.metric_train_accuracy_per_class.update(y_hat, labels.to(torch.int))
         self.metric_train_AP_per_class.update(y_hat, labels.to(torch.int))
         
@@ -216,20 +250,32 @@ class Model(pl.LightningModule):
     
     def on_validation_epoch_start(self):
         self.trainer.datamodule.val_dataset.set_modality_mode("validation")
+        
+    #def on_after_backward(self):
+    # Print gradient norm for key layers
+    #    for name, param in self.named_parameters():
+    #        if param.requires_grad:
+    #            grad_norm = None if param.grad is None else param.grad.norm().item()
+    #            print(f"{name}: grad_norm={grad_norm}")
 
 
         
     def validation_step(self, batch, batch_idx,dataloader_idx=0):
         img, mask,resolution,size, labels, _ = batch
+        
+        
+        
 
    
         y_hat = self.forward(img,mask,resolution,size,training=False)
+    
       
 
         loss = self.loss(y_hat, labels.float())
-        
+        y_hat = torch.sigmoid(y_hat)
 
         
+
         if dataloader_idx==0:
             self.metric_val_mod_val_accuracy_per_class.update(y_hat, labels.to(torch.int))
             self.metric_val_mod_val_AP_per_class.update(y_hat, labels.to(torch.int))

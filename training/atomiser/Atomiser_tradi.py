@@ -12,7 +12,7 @@ from einops import rearrange, repeat
 from einops.layers.torch import Reduce
 import wandb
 import time
-from torch.profiler import record_function
+
 
 
 def cache_fn(f):
@@ -81,44 +81,44 @@ def sample_tensor_percent(tensor: torch.Tensor, percent: float) -> torch.Tensor:
     indices = torch.randperm(n)[:n_sample]
     return tensor[indices]
 
-def pruning(tokens: torch.Tensor,
-            attention_mask: torch.Tensor,
-            percent: float):
+def pruning(tokens, attention_mask, percent):
     """
-    Randomly drop `percent`% of the *valid* tokens (those
-    where attention_mask is True in any batch element).
-
-    Returns:
-      - pruned_tokens:        Tensor of shape (B, K, D)
-      - pruned_attention_mask:Tensor of shape (B, K)
-      - keep_idx:             LongTensor of shape (K,), the indices in [0..N)
+    Randomly drop `percent` of the *valid* tokens, i.e. those
+    whose mask==True in *any* batch element.  Returns:
+      - pruned tokens:     tokens[:, keep_idx, :]
+      - pruned attention_mask: attention_mask[:, keep_idx]
+      - keep_idx: indices of kept tokens in the original N
     """
     B, N, D = tokens.shape
-    device = tokens.device
 
-   
-    #valid = attention_mask.any(dim=0)           
-    #valid_idx = valid.nonzero(as_tuple=True)[0]   
+    # find positions that are unmasked in *at least one* batch entry
+    # (so we don't throw away tokens just because they happen
+    #  to be masked in *some* images)
+    valid = attention_mask.any(dim=0)           # shape (N,), bool
+    valid_idx = torch.nonzero(valid, as_tuple=True)[0]  # (M,) positions
 
-    keep_frac = 1.0 - (percent / 100.0)
-    #num_valid = valid_idx.size(0)
-    num_keep  = max(1, int(N * keep_frac))
+    M = valid_idx.numel()
+    # how many of those M we want to drop
+    n_drop = int(M * percent / 100)
+    if n_drop <= 0:
+        # nothing to drop
+        return tokens, attention_mask, torch.arange(N, device=tokens.device)
 
-    perm      = torch.randperm(N, device=device)
-    kept_perm = perm[:num_keep]                   
-    #keep_idx  = valid_idx[kept_perm]             
+    # shuffle only the valid positions
+    perm = valid_idx[torch.randperm(M, device=tokens.device)]
+    keep = perm[n_drop:]                       # keep the last M-n_drop
 
-    pruned_tokens        = tokens[:, kept_perm, :].clone()      
-    pruned_attention_mask= attention_mask[:, kept_perm].clone()    
+    
 
-    return pruned_tokens, pruned_attention_mask
+    # index into tokens & mask
+    pruned_tokens = tokens[:, keep, :]      # (B, M-n_drop, D)
+    pruned_mask   = attention_mask[:, keep] # (B, M-n_drop)
+    
+    return pruned_tokens, pruned_mask, keep
 
 
 
-
-
-
-class Atomiser(pl.LightningModule):
+class Atomiser_tradi(pl.LightningModule):
     def __init__(
         self,
         *,
@@ -176,6 +176,7 @@ class Atomiser(pl.LightningModule):
                 heads       = cross_heads,
                 dim_head    = cross_dim_head,
                 dropout     = attn_dropout,
+                use_flash   = True
             ),
             context_dim = input_dim
         ))
@@ -257,51 +258,52 @@ class Atomiser(pl.LightningModule):
 
     def forward(self, data, mask=None, resolution=None, size=None, training=True):
         # Preprocess tokens + mask
-        tokens, tokens_mask = self.transform.process_data(data, mask, resolution, size)
         
-       
-        #tokens = tokens.masked_fill_(tokens_mask.unsqueeze(-1), 0.)
+        if len(data.shape)==3:
+            tokens=data
+            tokens_mask=mask
+        else:
+            tokens, tokens_mask = self.transform.process_data(data, mask,resolution)
         
-        b = data.shape[0]
 
-        # Initialize latents
-        x = repeat(self.latents, 'n d -> b n d', b=b) 
+
+
+        b = tokens.shape[0]
+        x=sample_tensor_percent(self.latents, 10)
+        # initialize latents
+        x = repeat(x, 'n d -> b n d', b=b)
+        # apply mask to tokens
+        tokens_mask = tokens_mask.to(torch.bool)
+        tokens = tokens.masked_fill_(tokens_mask.unsqueeze(-1), 0.)
+
+        t, m = tokens, tokens_mask
         
         
-        for idx_layer, (cross_attn, cross_ff, self_attns) in enumerate(self.layers):
-            permutation = torch.randperm(tokens.shape[1], device=data.device)
-            tmp_data = tokens[:, permutation[:10000]].clone()
-            tmp_mask = tokens_mask[:, permutation[:10000]].clone()
-            
-            tmp_data, tmp_mask = self.transform.process_data(tmp_data, tmp_mask, resolution, size)
-            tmp_mask = tmp_mask.to(torch.bool)
-            tmp_mask= ~tmp_mask
-            
-            
 
-            # Cross-attention
-            
-            
+        # cross & self layers
+        for idx_layer,(cross_attn, cross_ff, self_attns) in enumerate(self.layers):
+            # optionally prune
+            if self.masking > 0 and training:
+                t, m, idx = pruning(tokens, tokens_mask, self.masking)
+            m= ~m.clone()
+            # cross-attn
 
-            x_ca = cross_attn(x, context=tmp_data, mask=tmp_mask,id=idx_layer)
-            
-            x = x_ca + x
-            
-            # Feed-forward after CA
-            x_ff = cross_ff(x)
-            x = x_ff + x
-            
-            # Self-attention + FF blocks
-            for blk_idx, (sa, ff) in enumerate(self_attns):
-                x_sa = sa(x)
-                
-                x = x_sa + x
-                
+          
+            x = cross_attn(x, context=t, mask=m,id=idx_layer) + x
 
-                x_ff2 = ff(x)
-                
-                x = x_ff2 + x
-                
+          
 
-        # Classifier
+            x = cross_ff(x) + x
+            # restore tokens if pruned
+            
+            # self-attn blocks
+            for (sa, ff) in self_attns:
+                x = sa(x) + x
+                x = ff(x) + x
+
+
+        # classifier
         return self.to_logits(x)
+    
+
+    

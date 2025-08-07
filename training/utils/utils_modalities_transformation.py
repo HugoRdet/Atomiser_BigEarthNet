@@ -212,7 +212,7 @@ class modalities_transformations_config:
         apply transformations specified in {self.path}/{idx}_transfos.yaml file.
         This is the function you should call in the get_item
         """
-        return img,mask,1.0
+      
 
         if modality_mode==None:
             modality_mode=mode

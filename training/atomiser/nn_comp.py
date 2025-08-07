@@ -142,26 +142,26 @@ class CrossAttention(nn.Module):
         # Store dropout separately for manual attention
         self.dropout = nn.Dropout(dropout)
         
+        # Will hold the last attention weights (manual path only)
+        self.last_attn = None
+        
         
         
     def forward(self, x, context, mask=None,id=0):
         B, Nq, _ = x.shape
         Nk = context.shape[1]
         
-        
-        
         # 1) Project Q, K, V
         q = self.to_q(x)  # (B, Nq, inner)
         #k = self.to_k(context)  # (B, Nk, 2·inner)
         k=None
 
-        #qif id>0:
-        #    context_k=context.clone()
-        #    context_k[:,:,:129]=0.0
-        #    k = self.to_k(context_k)  # each (B, Nk, inner)
-        #else:
-        k=self.to_k(context)
-            
+        if id>0:
+            context_k=context.clone()
+            context_k[:,:,:129]=0.0
+            k = self.to_k(context_k)  # each (B, Nk, inner)
+        else:
+            k=self.to_k(context)
         v = self.to_v(context)  # each (B, Nk, inner)
         
         # 2) Split heads
