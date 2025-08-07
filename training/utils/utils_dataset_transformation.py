@@ -158,7 +158,6 @@ class transformations_config(nn.Module):
         self,
         size,             # e.g. (B_size, T_size, H, W, C)
         resolution: float,      # shape [C], base resolution per band
-        resolution_factor: float,  # shape [B_size], factor per sample
         device
         ):
         """
@@ -172,10 +171,10 @@ class transformations_config(nn.Module):
 
         # -- 1) compute per-sample, per-band new resolution: [B, C]
         #    new_res[i, b] = resolution[b] / resolution_factor[i]
-        new_res = resolution / resolution_factor
+        
 
         # -- 2) compute positional scaling per band: [B, C]
-        pos_scalings = (size * new_res) / 400.0
+        pos_scalings = (size * resolution) / 400.0
   
         max_freq  = self.config["Atomiser"]["pos_max_freq"]
         num_bands = self.config["Atomiser"]["pos_num_freq_bands"]
@@ -384,7 +383,7 @@ class transformations_config(nn.Module):
             resolution, image_size = modality
             
             # Get global offset for this modality
-            pos=self.get_positional_encoding_fourrier(image_size,10.0,resolution,device)
+            pos=self.get_positional_encoding_fourrier(image_size,resolution,device)
             
             
             
@@ -725,7 +724,7 @@ class transformations_config(nn.Module):
         tokens = torch.cat([
             value_processed,
             central_wavelength_processing,
-            p_x.zero_()
+            p_x
         ], dim=-1)
         
         
