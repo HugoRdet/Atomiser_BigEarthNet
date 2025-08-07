@@ -270,8 +270,8 @@ class Atomiser(pl.LightningModule):
         
         for idx_layer, (cross_attn, cross_ff, self_attns) in enumerate(self.layers):
             permutation = torch.randperm(tokens.shape[1], device=data.device)
-            tmp_data = tokens[:, permutation[:10000]].clone()
-            tmp_mask = tokens_mask[:, permutation[:10000]].clone()
+            tmp_data = tokens[:, :1000].clone()#permutation[:10000]].clone()
+            tmp_mask = tokens_mask[:, :1000].clone()#permutation[:10000]].clone()
             
             tmp_data, tmp_mask = self.transform.process_data(tmp_data, tmp_mask, resolution, size)
             tmp_mask = tmp_mask.to(torch.bool)

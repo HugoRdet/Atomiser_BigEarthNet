@@ -672,6 +672,7 @@ class transformations_config(nn.Module):
 
             tmp_bandwidth, tmp_central_wavelength = self.s2_waves
             
+            
         
 
 
