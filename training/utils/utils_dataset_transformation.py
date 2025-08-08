@@ -119,7 +119,7 @@ class transformations_config(nn.Module):
             res.append(band["resolution"])
 
 
-        return torch.from_numpy(np.array([20 for _ in range(12)]))
+        return torch.from_numpy(np.array([10 for _ in range(12)]))
    
 
 
@@ -749,10 +749,12 @@ class transformations_config(nn.Module):
         # 3) Band‑value encoding
         value_processed = self.get_bvalue_processing(im_sen[:,:,0])
         
-        #p_x=fourier_encode(im_sen[:,:,1], max_freq=64, num_bands=64)
-        #p_y=fourier_encode(im_sen[:,:,2], max_freq=64, num_bands=64)
-        p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
         
+        #p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
+        band_post_proc_0=self.get_gaussian_encoding(im_sen,8,100, im_sen.device)
+        band_post_proc_1=self.get_gaussian_encoding(im_sen,16,40.0, im_sen.device)
+        band_post_proc_2=self.get_gaussian_encoding(im_sen,32,15.0, im_sen.device)
+        band_post_proc_3=self.get_gaussian_encoding(im_sen,73,5.0, im_sen.device)
 
         
 
@@ -772,7 +774,10 @@ class transformations_config(nn.Module):
         tokens = torch.cat([
             value_processed,
             central_wavelength_processing,
-            p_x
+            band_post_proc_0,
+            band_post_proc_1,
+            band_post_proc_2,
+            band_post_proc_3,
         ], dim=-1)
 
         

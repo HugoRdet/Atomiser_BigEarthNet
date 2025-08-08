@@ -283,8 +283,8 @@ class Atomiser_tradi(pl.LightningModule):
         # cross & self layers
         for idx_layer,(cross_attn, cross_ff, self_attns) in enumerate(self.layers):
             # optionally prune
-            if self.masking > 0 and training:
-                t, m, idx = pruning(tokens, tokens_mask, self.masking)
+            #if self.masking > 0 and training:
+            t, m, idx = pruning(tokens, tokens_mask, self.masking)
             m= ~m.clone()
             # cross-attn
 
