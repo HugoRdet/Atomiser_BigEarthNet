@@ -74,7 +74,7 @@ class Model_MAE(pl.LightningModule):
         
         y_hat, y_mask = self.forward(image.clone(), attention_mask.clone(), mae_tokens.clone(), mae_tokens_mask.clone(), training=True)
         
-        #[0.6973, 0.6973, 0.6973, 0.6973, 0.6973, 0.6973, 0.9839, 0.9839, 0.9839,0.9839]
+        
         y_hat_masked = y_hat.clone()
         mae_tokens_masked = mae_tokens.clone()
         

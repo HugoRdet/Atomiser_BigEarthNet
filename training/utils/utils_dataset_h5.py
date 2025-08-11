@@ -273,6 +273,8 @@ class Tiny_BigEarthNet_MAE(Dataset):
         self.config_model=config_model
         self.nb_tokens=self.config_model["trainer"]["max_tokens"]
         self.max_tokens_reconstruction = self.config_model["trainer"]["max_tokens_reconstruction"]
+        self.reconstruction_viz_idx=self.config_model["debug"]["idxs_to_viz"]
+        
 
         self.look_up=look_up
         self.mask_gen= IJEPAStyleMaskGenerator(
@@ -371,6 +373,64 @@ class Tiny_BigEarthNet_MAE(Dataset):
         
         return idxs_bandwidths
     
+    def shuffle_arrays(self,arrays:list):
+        tmp_rand = torch.randperm(arrays[0].shape[0])
+        res=[]
+        for tmp_array in arrays:
+            tmp_array=tmp_array[tmp_rand]
+            res.append(tmp_array)
+        return res
+    
+    def padding_mae(self,mae_tokens):
+        mae_tokens_mask = torch.zeros(mae_tokens.shape[0], dtype=torch.float32)
+        
+        # Padding mae tokens
+        if mae_tokens.shape[0] < self.max_tokens_reconstruction:
+            padding_size = self.max_tokens_reconstruction - mae_tokens.shape[0]
+            
+            # Create padding with same dtype as mae_tokens
+            padding_mae = torch.zeros((padding_size, mae_tokens.shape[1]), dtype=mae_tokens.dtype)
+            mae_tokens = torch.cat([mae_tokens, padding_mae], dim=0)
+            
+            # Create padding mask with same dtype as mae_tokens_mask (float32, not bool)
+            padding_mae_mask = torch.ones(padding_size, dtype=torch.float32)  # 1.0 for padded tokens
+            mae_tokens_mask = torch.cat([mae_tokens_mask, padding_mae_mask], dim=0)
+            
+        return mae_tokens,mae_tokens_mask
+    
+    def padding_image(self,image):
+        # Create attention mask for input tokens
+        attention_mask = torch.zeros(image.shape[0], dtype=torch.float32)
+        
+        # Handle input token padding
+        current_len = image.shape[0]
+        target_len = self.nb_tokens
+
+        if current_len < target_len:
+            # Repeat full image as many times as needed
+            repeat_factor = target_len // current_len
+            remainder = target_len % current_len
+
+            repeated_image = image.repeat((repeat_factor, 1))  # [repeat_factor * d, 4]
+            if remainder > 0:
+                remainder_image = image[:remainder]            # [remainder, 4]
+                image = torch.cat([repeated_image, remainder_image], dim=0)
+            else:
+                image = repeated_image
+
+            # Repeat the attention mask the same way
+            repeated_mask = attention_mask.repeat(repeat_factor)
+            if remainder > 0:
+                remainder_mask = attention_mask[:remainder]
+                attention_mask = torch.cat([repeated_mask, remainder_mask], dim=0)
+            else:
+                attention_mask = repeated_mask
+        
+        return image,attention_mask
+        
+        
+        
+    
     
 
     def __getitem__(self, idx):
@@ -417,62 +477,128 @@ class Tiny_BigEarthNet_MAE(Dataset):
         mask_MAE = MAE_mask[attention_mask==0.0]    #same for mask
         
         # Shuffle tokens
-        #tmp_rand = torch.randperm(image.shape[0])
-        #image = image[tmp_rand]
-        #mask_MAE = mask_MAE[tmp_rand]
+        image,mask_MAE=self.shuffle_arrays([image,mask_MAE])
         
         # Split into input and target tokens
         input_tokens = image[mask_MAE==0.0].clone()
         mae_tokens = image[mask_MAE==1.0].clone()
         
+        # Take required number of tokens
+        image = input_tokens[:self.nb_tokens]
+        mae_tokens = mae_tokens[:self.max_tokens_reconstruction]
         
+        mae_tokens,mae_tokens_mask= self.padding_mae(mae_tokens)
+        image,attention_mask= self.padding_image(image)
+
+        return image, attention_mask, mae_tokens, mae_tokens_mask, label
+    
+    
+    def __getitem__(self, idx):
+        image=None
+        label=None
+        id_img=None
+
+        f = self.h5
+
+        image = torch.tensor(f[f'image_0'][:])[2:,:,:] #14;120;120
+        #image =random_rotate_flip(image)
+        attention_mask=torch.zeros(image.shape)
+        label = torch.tensor(f[f'label_{idx}'][:])
+        id_img = int(f[f'id_{idx}'][()])
+        
+        mask_MAE=None
+
+        image,attention_mask,new_resolution=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode,f_s=self.fixed_size,f_r=self.fixed_resolution)
+        
+        self.mask_gen.H, self.mask_gen.W = image.shape[1], image.shape[2]
+        #mask_MAE = self.mask_gen.generate_mask()
+        mask_MAE=torch.zeros((120,120))
+        mask_MAE[:61] = 1.0  # Example mask, replace with actual mask generation logic
+        mask_MAE = mask_MAE.repeat(image.shape[0], 1, 1)  # Repeat for all bands
+        
+        idxs_bandwidths = self.get_wavelengths_coordinates(image.shape)
+        x_indices, y_indices = self.get_position_coordinates(image.shape, new_resolution)
+        
+        # Concatenate all token data
+        image = torch.cat([
+            image.unsqueeze(-1),      # Band values
+            x_indices.float(),        # Global X indices
+            y_indices.float(),        # Global Y indices  
+            idxs_bandwidths.float()  # Bandwidth indices
+        ], dim=-1)
+        
+        # Reshape and sample tokens
+        image = rearrange(image, "b h w c -> (b h w) c")
+        attention_mask = rearrange(attention_mask, "c h w -> (c h w)")
+        MAE_mask = rearrange(mask_MAE, "c h w -> (c h w)")
+        
+        # Filter valid tokens
+        image = image[attention_mask==0.0]          #image get resized and invald bands removed
+        mask_MAE = MAE_mask[attention_mask==0.0]    #same for mask
+        
+        # Shuffle tokens
+        image,mask_MAE=self.shuffle_arrays([image,mask_MAE])
+        
+        # Split into input and target tokens
+        input_tokens = image[mask_MAE==0.0].clone()
+        mae_tokens = image[mask_MAE==1.0].clone()
         
         # Take required number of tokens
         image = input_tokens[:self.nb_tokens]
         mae_tokens = mae_tokens[:self.max_tokens_reconstruction]
         
-        # FIXED: Create mask with consistent float type and proper device handling
-        mae_tokens_mask = torch.zeros(mae_tokens.shape[0], dtype=torch.float32)
-        
-        # Padding mae tokens
-        if mae_tokens.shape[0] < self.max_tokens_reconstruction:
-            padding_size = self.max_tokens_reconstruction - mae_tokens.shape[0]
-            
-            # Create padding with same dtype as mae_tokens
-            padding_mae = torch.zeros((padding_size, mae_tokens.shape[1]), dtype=mae_tokens.dtype)
-            mae_tokens = torch.cat([mae_tokens, padding_mae], dim=0)
-            
-            # Create padding mask with same dtype as mae_tokens_mask (float32, not bool)
-            padding_mae_mask = torch.ones(padding_size, dtype=torch.float32)  # 1.0 for padded tokens
-            mae_tokens_mask = torch.cat([mae_tokens_mask, padding_mae_mask], dim=0)
-        
-        # Create attention mask for input tokens
-        attention_mask = torch.zeros(image.shape[0], dtype=torch.float32)
-        
-        # Handle input token padding
-        current_len = image.shape[0]
-        target_len = self.nb_tokens
+        mae_tokens,mae_tokens_mask= self.padding_mae(mae_tokens)
+        image,attention_mask= self.padding_image(image)
 
-        if current_len < target_len:
-            # Repeat full image as many times as needed
-            repeat_factor = target_len // current_len
-            remainder = target_len % current_len
-
-            repeated_image = image.repeat((repeat_factor, 1))  # [repeat_factor * d, 4]
-            if remainder > 0:
-                remainder_image = image[:remainder]            # [remainder, 4]
-                image = torch.cat([repeated_image, remainder_image], dim=0)
-            else:
-                image = repeated_image
-
-            # Repeat the attention mask the same way
-            repeated_mask = attention_mask.repeat(repeat_factor)
-            if remainder > 0:
-                remainder_mask = attention_mask[:remainder]
-                attention_mask = torch.cat([repeated_mask, remainder_mask], dim=0)
-            else:
-                attention_mask = repeated_mask
-
-        # Truncate if needed
-        
         return image, attention_mask, mae_tokens, mae_tokens_mask, label
+    
+    def get_samples_to_viz(self,idx):
+        image=None
+        label=None
+        id_img=None
+
+        f = self.h5
+
+        image = torch.tensor(f[f'image_{idx}'][:])[2:,:,:] #14;120;120
+        #image =random_rotate_flip(image)
+        attention_mask=torch.zeros(image.shape)
+        label = torch.tensor(f[f'label_{idx}'][:])
+        id_img = int(f[f'id_{idx}'][()])
+        
+        mask_MAE=None
+        new_resolution=1.0
+        #image,attention_mask,new_resolution=self.transform.apply_transformations(image,attention_mask,id_img,mode=self.mode,modality_mode=self.modality_mode,f_s=self.fixed_size,f_r=self.fixed_resolution)
+        
+        self.mask_gen.H, self.mask_gen.W = image.shape[1], image.shape[2]
+        mask_MAE = self.mask_gen.generate_mask()
+        mask_MAE_res=mask_MAE.clone()
+        mask_MAE = mask_MAE.repeat(image.shape[0], 1, 1)  # Repeat for all bands
+        
+        idxs_bandwidths = self.get_wavelengths_coordinates(image.shape)
+        x_indices, y_indices = self.get_position_coordinates(image.shape, new_resolution)
+        
+        # Concatenate all token data
+        image = torch.cat([
+            image.unsqueeze(-1),      # Band values
+            x_indices.float(),        # Global X indices
+            y_indices.float(),        # Global Y indices  
+            idxs_bandwidths.float()  # Bandwidth indices
+        ], dim=-1)
+        
+        # Reshape and sample tokens
+        image = rearrange(image, "b h w c -> (b h w) c")
+        attention_mask = rearrange(attention_mask, "c h w -> (c h w)")
+        MAE_mask = rearrange(mask_MAE, "c h w -> (c h w)")
+        
+        # Filter valid tokens
+        image = image[attention_mask==0.0]          #image get resized and invald bands removed
+        mask_MAE = MAE_mask[attention_mask==0.0]    #same for mask
+        
+        # Split into input and target tokens
+        input_tokens = image[mask_MAE==0.0].clone()
+        #here all tokens are reconstructed
+        mae_tokens = image.clone()
+        
+
+        return image, attention_mask, mae_tokens, mask_MAE_res
+        
