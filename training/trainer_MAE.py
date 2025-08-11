@@ -77,9 +77,7 @@ class Model_MAE(pl.LightningModule):
         #[0.6973, 0.6973, 0.6973, 0.6973, 0.6973, 0.6973, 0.9839, 0.9839, 0.9839,0.9839]
         y_hat_masked = y_hat.clone()
         mae_tokens_masked = mae_tokens.clone()
-        print("mae tokens shape: ",mae_tokens[0,:10,0])
-        print("y_hat shape: ",y_hat[0,:10,0])
-        print("*"*20)
+        
         
         
         

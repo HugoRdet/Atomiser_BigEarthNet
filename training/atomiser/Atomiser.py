@@ -183,16 +183,15 @@ class Atomiser(pl.LightningModule):
         recon_dim = 1 #we just reconstruct the reflectance
         
         
+        self.decoder_cross_attn = PreNorm_lucidrains(query_dim_recon, Attention_lucidrains(query_dim_recon, latent_dim, heads = cross_heads, dim_head = cross_dim_head), context_dim = latent_dim)
         
         self.recon_cross = PreNorm(
             query_dim_recon,  # 
-            CrossAttention_reconstruction(
+            Attention_lucidrains(
                 query_dim   = query_dim_recon,   
                 context_dim = latent_dim,   
                 heads       = latent_heads,
                 dim_head    = latent_dim_head,
-                dropout     = attn_dropout,
-                use_flash   = True,
             )
         )
         
@@ -300,14 +299,10 @@ class Atomiser(pl.LightningModule):
         
         query_tokens, query_mask = self.transform.process_data(query_tokens, query_mask,query=True)
         
-        y = self.recon_cross(query_tokens, context=latents, mask=None)  # [B, K, D]
+        y = self.decoder_cross_attn(query_tokens, context=latents, mask=None)  # [B, K, D]
 
-        # Optional tiny decoder refinement
-        #y = y + self.recon_sa(y)
-        y = y + self.recon_ff(y)
-
-        # Project to reconstruction targets
-        preds = self.recon_head(y)  # [B, K, recon_dim]
+        #preds = self.recon_mlp(query_tokens)
+        preds=self.recon_ff(y)
 
         return preds, query_mask
 
