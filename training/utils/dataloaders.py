@@ -135,10 +135,11 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
                 ds=None,
                 dataset_config=None,
                 config_model=None,
-                look_up=None):
+                look_up=None,
+                dataset_class=Tiny_BigEarthNet):
         super().__init__()
         self.train_file = path + "_train.h5"
-        self.val_file = path + "_validation.h5"
+        self.val_file = path + "_train.h5"#"_validation.h5"
         self.test_file = path + "_test.h5"
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -149,15 +150,16 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         self.dataset_config=dataset_config
         self.config_model=config_model
         self.look_up=look_up
+        self.dataset_class=dataset_class
         
  
 
     def setup(self, stage=None):
         
-
         
         
-        self.train_dataset = Tiny_BigEarthNet(
+        
+        self.train_dataset = self.dataset_class(
             self.train_file,
             transform=self.trans_modalities,
             transform_tokens=self.trans_tokens,
@@ -169,7 +171,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         )
 
             
-        self.val_dataset = Tiny_BigEarthNet(
+        self.val_dataset = self.dataset_class(
             self.val_file,
             transform=self.trans_modalities,
             transform_tokens=self.trans_tokens,
@@ -180,7 +182,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
             look_up=self.look_up
         )
 
-        self.val_dataset_mode_train = Tiny_BigEarthNet(
+        self.val_dataset_mode_train = self.dataset_class(
             self.val_file,
             transform=self.trans_modalities,
             transform_tokens=self.trans_tokens,
@@ -196,7 +198,7 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
         if self.modality!=None:
             self.val_dataset.modality_mode=self.modality
             
-        self.test_dataset = Tiny_BigEarthNet(
+        self.test_dataset = self.dataset_class(
             self.test_file,
             transform=self.trans_modalities,
             transform_tokens=self.trans_tokens,
@@ -214,7 +216,9 @@ class Tiny_BigEarthNetDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         # Create the custom distributed sampler inside the DataLoader call.
-
+        
+        
+        
         if self.modality==None:
       
             self.modality="train"

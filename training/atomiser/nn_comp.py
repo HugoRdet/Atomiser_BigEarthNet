@@ -190,6 +190,73 @@ class CrossAttention(nn.Module):
         # 3) Recombine heads and project
         out = rearrange(out, "b h n d -> b n (h d)")
         return self.to_out(out)
+    
+class CrossAttention_reconstruction(nn.Module):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0., use_flash=True,id=0):
+        super().__init__()
+        context_dim = context_dim or query_dim
+        inner = dim_head * heads
+        self.heads = heads
+        self.scale = dim_head ** -0.5
+        self.use_flash = use_flash and hasattr(F, "scaled_dot_product_attention")
+        
+        self.to_q = nn.Linear(query_dim, inner, bias=False)
+        
+        self.to_k = nn.Linear(context_dim, inner , bias=False)
+     
+        self.to_v = nn.Linear(context_dim, inner , bias=False)
+
+        self.to_out = nn.Sequential(
+            nn.Linear(inner, query_dim),
+            nn.Dropout(dropout)
+        )
+        
+        # Store dropout separately for manual attention
+        self.dropout = nn.Dropout(dropout)
+        
+        # Will hold the last attention weights (manual path only)
+        self.last_attn = None
+        
+        
+        
+    def forward(self, x, context, mask=None,id=0):
+        B, Nq, _ = x.shape
+        Nk = context.shape[1]
+        
+        # 1) Project Q, K, V
+        q = self.to_q(x)  # (B, Nq, inner)
+        #k = self.to_k(context)  # (B, Nk, 2·inner)
+      
+        k=self.to_k(context)
+        
+        v = self.to_v(context)  # each (B, Nk, inner)
+        
+        # 2) Split heads
+        q = rearrange(q, "b n (h d) -> b h n d", h=self.heads)
+        k = rearrange(k, "b n (h d) -> b h n d", h=self.heads)
+        v = rearrange(v, "b n (h d) -> b h n d", h=self.heads)
+        
+        # FLASH path: no ability to grab attention weights
+        attn_mask = None
+        if mask is not None:
+            # mask should be (B, Nq, Nk) - True for valid positions
+            if mask.dim() == 2:
+                # If mask is (B, Nk), expand to (B, Nq, Nk)
+                mask = mask.unsqueeze(1).expand(-1, Nq, -1)
+            attn_mask = mask.unsqueeze(1).expand(-1, self.heads, -1, -1)
+        
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=attn_mask,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=False
+        )
+        self.last_attn = None
+            
+        
+        # 3) Recombine heads and project
+        out = rearrange(out, "b h n d -> b n (h d)")
+        return self.to_out(out)
 
 class LatentAttentionPooling(nn.Module):
     def __init__(self, dim, heads=4, dim_head=64, dropout=0.):

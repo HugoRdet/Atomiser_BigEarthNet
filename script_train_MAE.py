@@ -67,12 +67,12 @@ if os.environ.get("LOCAL_RANK", "0") == "0":
     import wandb
     wandb.init(
         name=config_model["encoder"],
-        project="Atomizer_BigEarthNet_debug",
+        project="MAE_debug",
         config=config_model
     )
-    wandb_logger = WandbLogger(project="Atomizer_BigEarthNet_debug")
+    wandb_logger = WandbLogger(project="MAE_debug")
 
-model = Model(
+model = Model_MAE(
     config_model,
     wand=True,
     name=xp_name,
@@ -89,23 +89,23 @@ data_module = Tiny_BigEarthNetDataModule(
     dataset_config=read_yaml(bands_yaml),
     config_model=config_model,
     look_up=lookup_table,
-    dataset_class=Tiny_BigEarthNet
+    dataset_class=Tiny_BigEarthNet_MAE
 )
 
 
 checkpoint_val_mod_train = ModelCheckpoint(
     dirpath="./checkpoints/",
-    filename=f"{config_model['encoder']}{xp_name}-best_val_mod_train-{{epoch:02d}}-{{val_mod_train_ap:.4f}}",
-    monitor="val_mod_train_ap",
-    mode="max",
+    filename=f"{config_model['encoder']}{xp_name}-val_reconstruction_loss-{{epoch:02d}}-{{val_reconstruction_loss:.4f}}",
+    monitor="val_reconstruction_loss",
+    mode="min",
     save_top_k=1,
     verbose=True,
 )
-accumulator = GradientAccumulationScheduler(scheduling={0:64})
+accumulator = GradientAccumulationScheduler(scheduling={0:1})
 
 # Trainer
 trainer = Trainer(
-    strategy="ddp",
+    strategy="ddp_find_unused_parameters_true",#"ddp",
     devices=-1,
     max_epochs=config_model["trainer"]["epochs"],
     accelerator="gpu",
@@ -114,6 +114,7 @@ trainer = Trainer(
     log_every_n_steps=5,
     callbacks=[checkpoint_val_mod_train, accumulator],
     default_root_dir="./checkpoints/",
+    overfit_batches=1,
     #profiler=profiler,           # ← attach the PyTorchProfiler here
 )
 

@@ -33,53 +33,7 @@ def cache_fn(f):
 
 import torch
 
-def sample_tensor_percent_batch(tensor: torch.Tensor, percent: float):
-    """
-    Randomly samples a percentage of elements along the second dimension (n) of a batched tensor
-    and returns both the sampled tensor and the indices used.
 
-    Args:
-        tensor (torch.Tensor): Input tensor of shape [b, n, d]
-        percent (float): Percentage of elements to sample along dimension n (between 0 and 100)
-
-    Returns:
-        sampled (torch.Tensor): Sampled tensor of shape [b, n', d]
-        indices (torch.LongTensor): Indices used to sample, shape [b, n']
-    """
-    assert 0 <= percent <= 100, "percent must be between 0 and 100"
-    b, n, d = tensor.shape
-    n_sample = int(n * percent / 100)
-
-    # Sample indices for each batch
-    indices = torch.stack([
-        torch.randperm(n)[:n_sample] for _ in range(b)
-    ])  # shape [b, n']
-
-    # Create batch indices for advanced indexing
-    batch_indices = torch.arange(b).unsqueeze(1).expand(-1, n_sample)  # shape [b, n']
-
-    # Gather sampled values
-    sampled = tensor[batch_indices, indices]  # shape [b, n', d]
-
-    return sampled, indices
-
-
-def sample_tensor_percent(tensor: torch.Tensor, percent: float) -> torch.Tensor:
-    """
-    Randomly samples a percentage of rows from a tensor.
-
-    Args:
-        tensor (torch.Tensor): Input tensor of shape [n, d]
-        percent (float): Percentage of rows to sample (between 0 and 100)
-
-    Returns:
-        torch.Tensor: Sampled tensor of shape [n', d], where n' = int(n * percent / 100)
-    """
-    assert 0 <= percent <= 100, "percent must be between 0 and 100"
-    n = tensor.size(0)
-    n_sample = int(n * percent / 100)
-    indices = torch.randperm(n)[:n_sample]
-    return tensor[indices]
 
 def pruning(tokens: torch.Tensor,
             attention_mask: torch.Tensor,
@@ -124,30 +78,34 @@ class Atomiser(pl.LightningModule):
         *,
         config,
         transform,
-        depth: int,
-        input_axis: int = 2,
-        num_latents: int = 512,
-        latent_dim: int = 512,
-        cross_heads: int = 1,
-        latent_heads: int = 8,
-        cross_dim_head: int = 64,
-        latent_dim_head: int = 64,
-        num_classes: int = 1000,
-        latent_attn_depth: int = 0,
-        attn_dropout: float = 0.,
-        ff_dropout: float = 0.,
-        weight_tie_layers: bool = False,
-        self_per_cross_attn: int = 1,
-        final_classifier_head: bool = True,
-        masking: float = 0.,
-        wandb=None
     ):
         super().__init__()
         self.save_hyperparameters(ignore=['transform'])
-        self.input_axis = input_axis
-        self.masking = masking
-        self.config = config
-        self.transform = transform
+        
+        self.config=config
+        self.transform=transform
+        depth=int(self.config["Atomiser"]["depth"])
+        num_latents=int(self.config["Atomiser"]["num_latents"])
+        latent_dim=int(self.config["Atomiser"]["latent_dim"])
+        cross_heads=int(self.config["Atomiser"]["cross_heads"])
+        latent_heads=int(self.config["Atomiser"]["latent_heads"])
+        cross_dim_head=int(self.config["Atomiser"]["cross_dim_head"])
+        latent_dim_head=int(self.config["Atomiser"]["latent_dim_head"])
+        num_classes=self.config["trainer"]["num_classes"]
+        attn_dropout=self.config["Atomiser"]["attn_dropout"]
+        ff_dropout=self.config["Atomiser"]["ff_dropout"]
+        weight_tie_layers=self.config["Atomiser"]["weight_tie_layers"]
+        self_per_cross_attn=self.config["Atomiser"]["self_per_cross_attn"]
+        final_classifier_head=self.config["Atomiser"]["final_classifier_head"]             
+        self.input_axis = 2
+        
+        self.max_tokens_forward = self.config["trainer"]["max_tokens_forward"]
+        self.max_tokens_val = self.config["trainer"]["max_tokens_val"]
+        self.max_tokens_reconstruction = self.config["trainer"]["max_tokens_reconstruction"]
+        
+        
+
+
 
         # Compute input dim from encodings
         
@@ -157,6 +115,7 @@ class Atomiser(pl.LightningModule):
         db = self.get_shape_attributes_config("bandvalue")
         #ok
         input_dim = dx + dy + dw + db
+        query_dim_recon = dx + dy + dw 
 
         # Initialize spectral params
         #self.VV = nn.Parameter(torch.empty(dw))
@@ -200,8 +159,7 @@ class Atomiser(pl.LightningModule):
             latent_dim,
             FeedForward(latent_dim, dropout=ff_dropout)
         ))
-        #d
-        # Build cross/self-attn layers
+        
         self.layers = nn.ModuleList()
         for i in range(depth):
             cache_args = {'_cache': (i>0 and weight_tie_layers)}
@@ -221,6 +179,47 @@ class Atomiser(pl.LightningModule):
 
   
 
+        # Decoder TODO
+        recon_dim = 1 #we just reconstruct the reflectance
+        
+        
+        
+        self.recon_cross = PreNorm(
+            query_dim_recon,  # 
+            CrossAttention_reconstruction(
+                query_dim   = query_dim_recon,   
+                context_dim = latent_dim,   
+                heads       = latent_heads,
+                dim_head    = latent_dim_head,
+                dropout     = attn_dropout,
+                use_flash   = True,
+            )
+        )
+        
+        self.recon_dim = recon_dim  # keep for reference
+        hidden = max(128, query_dim_recon * 2)
+        self.recon_mlp = nn.Sequential(
+            nn.LayerNorm(query_dim_recon),
+            nn.Linear(query_dim_recon, hidden),
+            nn.GELU(),                # ReLU works too; GELU is smoother
+            nn.Linear(hidden, hidden),
+            nn.GELU(),
+            nn.Linear(hidden, self.recon_dim)  # linear output for regression
+        )
+
+        self.recon_ff = PreNorm(
+            query_dim_recon, 
+            FeedForward(query_dim_recon, dropout=ff_dropout)  
+        )
+
+       
+        self.recon_head = nn.Sequential(
+            nn.LayerNorm(query_dim_recon),      
+            nn.Linear(query_dim_recon, recon_dim) 
+        )
+
+        
+        
         # Classifier
         if final_classifier_head:
             self.to_logits = nn.Sequential(
@@ -228,8 +227,45 @@ class Atomiser(pl.LightningModule):
                 nn.LayerNorm(latent_dim),
                 nn.Linear(latent_dim, num_classes)
             )
-        else:
-            self.to_logits = nn.Identity()
+        
+            
+    def _set_requires_grad(self, module: nn.Module, flag: bool):
+        for p in module.parameters():
+            p.requires_grad = flag
+
+    def freeze_encoder(self):
+        # freeze all attention/ffn layers used by self.encoder
+        self._set_requires_grad(self.layers, False)
+        # freeze latents parameter
+        if hasattr(self, "latents"):
+            self.latents.requires_grad = False
+
+    def unfreeze_encoder(self):
+        self._set_requires_grad(self.layers, True)
+        if hasattr(self, "latents"):
+            self.latents.requires_grad = True
+            
+    def _set_requires_grad(self, module: nn.Module, flag: bool):
+        for p in module.parameters():
+            p.requires_grad = flag
+
+    def freeze_decoder(self):
+        for m in (self.recon_cross, self.recon_ff, self.recon_head):
+            self._set_requires_grad(m, False)
+
+    def unfreeze_decoder(self):
+        for m in (self.recon_cross, self.recon_ff, self.recon_head):
+            self._set_requires_grad(m, True)
+
+    def freeze_classifier(self):
+        self._set_requires_grad(self.to_logits, False)
+
+    def unfreeze_classifier(self):
+        self._set_requires_grad(self.to_logits, True)
+
+    
+
+
        
 
 
@@ -247,38 +283,55 @@ class Atomiser(pl.LightningModule):
         if self.config["Atomiser"][attribute+"_encoding"]=="GAUSSIANS":
             return int(len(self.config["wavelengths_encoding"].keys()))
         
+        
+    def reconstruct(self, latents, mae_tokens, mae_tokens_mask):
+        """
+        latents:        [B, L, D]  (output of encoder)
+        mae_tokens:     [B, N, Din]  raw tokens for positions you want to reconstruct
+        mae_tokens_mask:[B, N]  boolean, True where padding/invalid (same convention as encoder)
+        returns:
+            preds: [B, K, recon_dim]  predictions (K <= N if limited)
+            out_mask: [B, K]          boolean mask aligned to preds (True = invalid)
+        """
+
+        
+        query_tokens = mae_tokens.clone()
+        query_mask   = mae_tokens_mask.clone()
+        
+        query_tokens, query_mask = self.transform.process_data(query_tokens, query_mask,query=True)
+        
+        y = self.recon_cross(query_tokens, context=latents, mask=None)  # [B, K, D]
+
+        # Optional tiny decoder refinement
+        #y = y + self.recon_sa(y)
+        y = y + self.recon_ff(y)
+
+        # Project to reconstruction targets
+        preds = self.recon_head(y)  # [B, K, recon_dim]
+
+        return preds, query_mask
+
 
     
                 
     
-
-
-
-
-    def forward(self, data, mask=None, resolution=None, size=None, training=True):
-        # Preprocess tokens + mask
-        
-        
-        
-       
-        #tokens = tokens.masked_fill_(tokens_mask.unsqueeze(-1), 0.)
-        
-        b = data.shape[0]
-
-        # Initialize latents
-        x = repeat(self.latents, 'n d -> b n d', b=b) 
-        
+    
+    def encoder(self,x,tokens,mask, training=True):
+        #performs the encoding of the latents through the multiple cross attention and self attention layers
+        #tokens: [B, K, D]
+        #mask: [B, K]
+        #latents: [N, D]
         
         for idx_layer, (cross_attn, cross_ff, self_attns) in enumerate(self.layers):
-            token_limit=10000
+            token_limit=self.max_tokens_forward
             if not training:
-                token_limit=10000
+                token_limit=self.max_tokens_val
             
-            permutation = torch.randperm(data.shape[1], device=data.device)
-            tmp_data = data[:,permutation[:token_limit]].clone()
+            permutation = torch.randperm(tokens.shape[1], device=tokens.device)
+            tmp_tokens = tokens[:,permutation[:token_limit]].clone()
             tmp_mask = mask[:,permutation[:token_limit]].clone()
             
-            tokens, tokens_mask = self.transform.process_data(tmp_data, tmp_mask, resolution, size)
+            tokens, tokens_mask = self.transform.process_data(tmp_tokens, tmp_mask)
             tokens_mask= tokens_mask.bool()
             tokens = tokens.masked_fill_(tokens_mask.unsqueeze(-1), 0.)
             
@@ -304,5 +357,27 @@ class Atomiser(pl.LightningModule):
                 x = x_ff2 + x
                 
 
-        # Classifier
-        return self.to_logits(x)
+        return x
+
+
+
+    
+    def forward(self, data, mask,mae_tokens,mae_tokens_mask, training=True, reconstruction=True):
+        #extraction of the batch size
+        b = data.shape[0]   
+        
+        
+        
+
+        # Initialize latents
+        x = repeat(self.latents, 'n d -> b n d', b=b) 
+        
+        #x=self.encoder(x, data, mask, training=training)
+        
+        #reconstruction
+        if reconstruction:
+            preds, out_mask = self.reconstruct(x, mae_tokens, mae_tokens_mask)
+            return preds, out_mask
+        else:
+            x = self.to_logits(x)
+            return x

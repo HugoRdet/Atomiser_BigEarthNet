@@ -715,69 +715,35 @@ class transformations_config(nn.Module):
          
 
 
-    def apply_transformations_optique(self, im_sen, mask_sen,resolution,size, mode):
-        # --- select band info based on mode ---
-        if mode=="s2":
-            tmp_infos = self.bands_sen2_infos
-            res = self.s2_res
-
-            tmp_bandwidth, tmp_central_wavelength = self.s2_waves
-            
-            
-        
-
-
-        #tokens of shape [batch,nb_tokens,5]
-        #last dimension:
-        #    - bandvalue
-        #    - xpos
-        #    - ypos
-        #    - bandwidth 
-        #    - central wavelength
-
-        B_size,T, C = im_sen.shape
+    def apply_transformations_optique(self, im_sen, mask_sen, mode,query=False):
+        if query:
+            central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device)
+            p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
     
+            tokens = torch.cat([
+                central_wavelength_processing,
+                p_x
+            ], dim=-1)
+            
+            return tokens, mask_sen
+        
         # 2) Wavelength encoding
-        #with record_function("Atomizer/process_data/get_tokens/wavelength_processing"):
-
         central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device)
-        
-        
-        
-        #with record_function("Atomizer/process_data/get_tokens/get_bvalue_processing"):
-
         # 3) Band‑value encoding
         value_processed = self.get_bvalue_processing(im_sen[:,:,0])
         
-        
-        #p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
-        band_post_proc_0=self.get_gaussian_encoding(im_sen,8,100, im_sen.device)
-        band_post_proc_1=self.get_gaussian_encoding(im_sen,16,40.0, im_sen.device)
-        band_post_proc_2=self.get_gaussian_encoding(im_sen,32,15.0, im_sen.device)
-        band_post_proc_3=self.get_gaussian_encoding(im_sen,73,5.0, im_sen.device)
+        p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
+        #band_post_proc_0=self.get_gaussian_encoding(im_sen,8,100, im_sen.device)
+        #band_post_proc_1=self.get_gaussian_encoding(im_sen,16,40.0, im_sen.device)
+        #band_post_proc_2=self.get_gaussian_encoding(im_sen,32,15.0, im_sen.device)
+        #band_post_proc_3=self.get_gaussian_encoding(im_sen,73,5.0, im_sen.device)
 
-        
-
-
-        
-        
-        
-        
-            
-        #print("value ",value_processed.shape,"  ",central_wavelength_processing.shape,"  ",band_post_proc_0.shape,band_post_proc_3.shape)
-        
-
-       
-        
-        
         #with record_function("Atomizer/process_data/get_tokens/cat"):
+        
         tokens = torch.cat([
             value_processed,
             central_wavelength_processing,
-            band_post_proc_0,
-            band_post_proc_1,
-            band_post_proc_2,
-            band_post_proc_3,
+            p_x
         ], dim=-1)
 
         
@@ -786,15 +752,15 @@ class transformations_config(nn.Module):
         return tokens, mask_sen
     
     
-    def get_tokens(self,img,mask,resolution,size,mode="optique",modality="s2",wave_encoding=None):
+    def get_tokens(self,img,mask,mode="optique",modality="s2",wave_encoding=None,query=False):
         
   
 
         if mode=="optique":
-            return self.apply_transformations_optique(img,mask,resolution,size,modality)
+            return self.apply_transformations_optique(img,mask,modality,query=query)
         
 
-    def process_data(self,img,mask,resolution,size):
+    def process_data(self,img,mask,query=False):
         
         L_tokens=[]
         L_masks=[]
@@ -806,7 +772,7 @@ class transformations_config(nn.Module):
             #    tmp_img,tmp_mask=self.apply_temporal_spatial_transforms(img, mask)
             
             #with record_function("Atomizer/process_data/get_tokens"):
-            tokens_s2,tokens_mask_s2=self.get_tokens(img,mask,resolution,size,mode="optique",modality="s2")
+            tokens_s2,tokens_mask_s2=self.get_tokens(img,mask,mode="optique",modality="s2",query=query)
             
             return tokens_s2,tokens_mask_s2
 
