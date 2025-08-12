@@ -190,74 +190,7 @@ class CrossAttention(nn.Module):
         # 3) Recombine heads and project
         out = rearrange(out, "b h n d -> b n (h d)")
         return self.to_out(out)
-    
-class CrossAttention_reconstruction(nn.Module):
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0., use_flash=True,id=0):
-        super().__init__()
-        context_dim = context_dim or query_dim
-        inner = dim_head * heads
-        self.heads = heads
-        self.scale = dim_head ** -0.5
-        self.use_flash = use_flash and hasattr(F, "scaled_dot_product_attention")
-        
-        self.to_q = nn.Linear(query_dim, inner, bias=False)
-        
-        self.to_k = nn.Linear(context_dim, inner , bias=False)
-     
-        self.to_v = nn.Linear(context_dim, inner , bias=False)
-
-        self.to_out = nn.Sequential(
-            nn.Linear(inner, query_dim),
-            nn.Dropout(dropout)
-        )
-        
-        # Store dropout separately for manual attention
-        self.dropout = nn.Dropout(dropout)
-        
-        # Will hold the last attention weights (manual path only)
-        self.last_attn = None
-        
-        
-        
-    def forward(self, x, context, mask=None,id=0):
-        B, Nq, _ = x.shape
-        Nk = context.shape[1]
-        
-        # 1) Project Q, K, V
-        q = self.to_q(x)  # (B, Nq, inner)
-        #k = self.to_k(context)  # (B, Nk, 2·inner)
-      
-        k=self.to_k(context)
-        
-        v = self.to_v(context)  # each (B, Nk, inner)
-        
-        # 2) Split heads
-        q = rearrange(q, "b n (h d) -> b h n d", h=self.heads)
-        k = rearrange(k, "b n (h d) -> b h n d", h=self.heads)
-        v = rearrange(v, "b n (h d) -> b h n d", h=self.heads)
-        
-        # FLASH path: no ability to grab attention weights
-        attn_mask = None
-        if mask is not None:
-            # mask should be (B, Nq, Nk) - True for valid positions
-            if mask.dim() == 2:
-                # If mask is (B, Nk), expand to (B, Nq, Nk)
-                mask = mask.unsqueeze(1).expand(-1, Nq, -1)
-            attn_mask = mask.unsqueeze(1).expand(-1, self.heads, -1, -1)
-        
-        out = F.scaled_dot_product_attention(
-            q, k, v,
-            attn_mask=attn_mask,
-            dropout_p=self.dropout.p if self.training else 0.0,
-            is_causal=False
-        )
-        self.last_attn = None
-            
-        
-        # 3) Recombine heads and project
-        out = rearrange(out, "b h n d -> b n (h d)")
-        return self.to_out(out)
-
+ 
 class LatentAttentionPooling(nn.Module):
     def __init__(self, dim, heads=4, dim_head=64, dropout=0.):
         super().__init__()
@@ -277,7 +210,7 @@ class LatentAttentionPooling(nn.Module):
         return out.squeeze(1)
     
     
-class PreNorm_lucidrains(nn.Module):
+class PreNorm(nn.Module):
     def __init__(self, dim, fn, context_dim = None):
         super().__init__()
         self.fn = fn
@@ -294,41 +227,6 @@ class PreNorm_lucidrains(nn.Module):
 
         return self.fn(x, **kwargs)
     
-class Attention_lucidrains(nn.Module):
-    def __init__(self, query_dim, context_dim = None, heads = 8, dim_head = 64):
-        super().__init__()
-        inner_dim = dim_head * heads
-        context_dim = default(context_dim, query_dim)
-        self.scale = dim_head ** -0.5
-        self.heads = heads
-
-        self.to_q = nn.Linear(query_dim, inner_dim, bias = False)
-        self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias = False)
-        self.to_out = nn.Linear(inner_dim, query_dim)
-
-    def forward(self, x, context = None, mask = None):
-        h = self.heads
-
-        q = self.to_q(x)
-        context = default(context, x)
-        k, v = self.to_kv(context).chunk(2, dim = -1)
-
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h = h), (q, k, v))
-
-        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
-
-        if exists(mask):
-            mask = rearrange(mask, 'b ... -> b (...)')
-            max_neg_value = -torch.finfo(sim.dtype).max
-            mask = repeat(mask, 'b j -> (b h) () j', h = h)
-            sim.masked_fill_(~mask, max_neg_value)
-
-        # attention, what we cannot get enough of
-        attn = sim.softmax(dim = -1)
-
-        out = einsum('b i j, b j d -> b i d', attn, v)
-        out = rearrange(out, '(b h) n d -> b n (h d)', h = h)
-        return self.to_out(out)
     
 class LinearAttention(nn.Module):
     def __init__(self, dim: int, heads: int = 4, dim_head: int = 64, dropout: float = 0.):

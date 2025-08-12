@@ -71,6 +71,7 @@ if os.environ.get("LOCAL_RANK", "0") == "0":
         config=config_model
     )
     wandb_logger = WandbLogger(project="MAE_debug")
+    
 
 model = Model_MAE(
     config_model,
@@ -92,6 +93,11 @@ data_module = Tiny_BigEarthNetDataModule(
     dataset_class=Tiny_BigEarthNet_MAE
 )
 
+reconstruction_callback = CustomMAEReconstructionCallback(
+        config=config_model
+    )
+
+
 
 checkpoint_val_mod_train = ModelCheckpoint(
     dirpath="./checkpoints/",
@@ -112,7 +118,7 @@ trainer = Trainer(
     precision="bf16-mixed",
     logger=wandb_logger,
     log_every_n_steps=5,
-    callbacks=[checkpoint_val_mod_train, accumulator],
+    callbacks=[checkpoint_val_mod_train, accumulator,reconstruction_callback],
     default_root_dir="./checkpoints/",
     overfit_batches=1,
     #profiler=profiler,           # ← attach the PyTorchProfiler here

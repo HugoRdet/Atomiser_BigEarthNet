@@ -3,7 +3,7 @@ from .nn_comp import*
 from .encoding import*
 import matplotlib.pyplot as plt
 import numpy as np
-
+from pytorch_optimizer import Lamb
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
@@ -183,16 +183,17 @@ class Atomiser(pl.LightningModule):
         recon_dim = 1 #we just reconstruct the reflectance
         
         
-        self.decoder_cross_attn = PreNorm_lucidrains(query_dim_recon, Attention_lucidrains(query_dim_recon, latent_dim, heads = cross_heads, dim_head = cross_dim_head), context_dim = latent_dim)
         
         self.recon_cross = PreNorm(
-            query_dim_recon,  # 
-            Attention_lucidrains(
+            query_dim_recon,   
+            CrossAttention(
                 query_dim   = query_dim_recon,   
                 context_dim = latent_dim,   
                 heads       = latent_heads,
                 dim_head    = latent_dim_head,
-            )
+                dropout=0.0
+            ),
+            context_dim=latent_dim
         )
         
         self.recon_dim = recon_dim  # keep for reference
@@ -299,11 +300,9 @@ class Atomiser(pl.LightningModule):
         
         query_tokens, query_mask = self.transform.process_data(query_tokens, query_mask,query=True)
         
-        y = self.decoder_cross_attn(query_tokens, context=latents, mask=None)  # [B, K, D]
-
-        #preds = self.recon_mlp(query_tokens)
-        preds=self.recon_ff(y)
-
+        preds = self.recon_cross(query_tokens, context=latents, mask=None)  # [B, K, D]
+        preds= self.recon_mlp(preds)
+        
         return preds, query_mask
 
 
@@ -331,8 +330,8 @@ class Atomiser(pl.LightningModule):
             tokens = tokens.masked_fill_(tokens_mask.unsqueeze(-1), 0.)
             
             
-
-            x_ca = cross_attn(x, context=tokens, mask=~tokens_mask,id=idx_layer)
+            
+            x_ca = cross_attn(x, context=tokens, mask=None,id=idx_layer)
             
             x = x_ca + x
             
@@ -372,6 +371,7 @@ class Atomiser(pl.LightningModule):
         #reconstruction
         if reconstruction:
             preds, out_mask = self.reconstruct(x, mae_tokens, mae_tokens_mask)
+            
             return preds, out_mask
         else:
             x = self.to_logits(x)

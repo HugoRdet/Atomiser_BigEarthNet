@@ -719,6 +719,7 @@ class transformations_config(nn.Module):
         if query:
             central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device)
             p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
+            
     
             tokens = torch.cat([
                 central_wavelength_processing,
@@ -736,7 +737,7 @@ class transformations_config(nn.Module):
         #band_post_proc_0=self.get_gaussian_encoding(im_sen,8,100, im_sen.device)
         #band_post_proc_1=self.get_gaussian_encoding(im_sen,16,40.0, im_sen.device)
         #band_post_proc_2=self.get_gaussian_encoding(im_sen,32,15.0, im_sen.device)
-        #band_post_proc_3=self.get_gaussian_encoding(im_sen,73,5.0, im_sen.device)
+        #band_post_proc_3=self.get_gaussian_encoding(im_sen,73,1.0, im_sen.device)
 
         #with record_function("Atomizer/process_data/get_tokens/cat"):
         
@@ -744,6 +745,7 @@ class transformations_config(nn.Module):
             value_processed,
             central_wavelength_processing,
             p_x
+            
         ], dim=-1)
 
         

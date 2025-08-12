@@ -74,27 +74,24 @@ class Model_MAE(pl.LightningModule):
         
         y_hat, y_mask = self.forward(image.clone(), attention_mask.clone(), mae_tokens.clone(), mae_tokens_mask.clone(), training=True)
         
-        
         y_hat_masked = y_hat.clone()
         mae_tokens_masked = mae_tokens.clone()
         
-        
-        
-        
-        
+        # Apply masking
         y_hat_masked[y_mask == 1.0] = 0.0
         mae_tokens_masked[y_mask == 1.0] = 0.0
         
+        # Compute loss
+        loss = self.loss(y_hat_masked[:, :, 0], mae_tokens_masked[:, :, 0])
         
-        loss = self.loss( y_hat_masked[:, :, 0], mae_tokens_masked[:, :, 0])
-        
+        # Update metrics
         self.metric_MSE_train.update(y_hat_masked[:, :, 0].detach(), mae_tokens_masked[:,:,0].detach())
         
         # Store loss for epoch-end logging
         self.train_losses.append(loss.detach().cpu().item())
         
-    
-        return loss    
+        # IMPORTANT: Return the loss so PyTorch Lightning can call backward()
+        return loss   
     
     def on_fit_start(self):
         # if starting with MAE
@@ -119,7 +116,7 @@ class Model_MAE(pl.LightningModule):
             avg_train_loss = 0.0
             
         self.log("train_reconstruction_loss", avg_train_loss, on_step=False, on_epoch=True, logger=True, sync_dist=True)
-        
+        #self.check_gradients()
         # Compute MSE metric
         try:
             train_mse = self.metric_MSE_train.compute()
@@ -136,6 +133,31 @@ class Model_MAE(pl.LightningModule):
     def on_validation_epoch_start(self):
         self.trainer.datamodule.val_dataset.set_modality_mode("validation")
         self.val_losses = []  # Reset for new epoch
+        
+    def on_after_backward(self):
+        """Check gradients after each backward pass."""
+        if self.global_step % 50 == 0:  # Check every 50 steps
+            self.check_encoder_decoder_separately()
+            
+        # Optional: Check for gradient explosion/vanishing
+        total_norm = 0
+        param_count = 0
+        for name, param in self.named_parameters():
+            if param.grad is not None:
+                param_norm = param.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+                param_count += 1
+        total_norm = total_norm ** (1. / 2)
+        
+        # Log gradient norm
+        if param_count > 0:
+            self.log("grad_norm", total_norm, on_step=True, on_epoch=False, logger=True)
+            
+            # Warning for gradient issues
+            if total_norm > 10.0:
+                print(f"⚠️ Large gradient norm detected: {total_norm:.4f}")
+            elif total_norm < 1e-6:
+                print(f"⚠️ Very small gradient norm detected: {total_norm:.8f}")
         
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         image, attention_mask, mae_tokens, mae_tokens_mask, labels = batch
@@ -219,9 +241,23 @@ class Model_MAE(pl.LightningModule):
         
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        # Import LAMB optimizer
+        
+        
+        # LAMB optimizer optimized for MAE training
+        # Consider increasing batch size when using LAMB
+        optimizer = Lamb(
+            self.parameters(), 
+            lr=self.lr * 2.0,    # LAMB often works with higher learning rates
+            weight_decay=self.weight_decay,
+            betas=(0.9, 0.999),  
+            eps=1e-6,            
+            # For MAE, you might want to experiment with:
+            # - Higher learning rates (2x-10x of Adam)
+            # - Larger batch sizes (if memory allows)
+        )
 
-        accumulate_grad_batches = 64#self.config["trainer"].get("accumulate_grad_batches", 1)
+        accumulate_grad_batches = 64
         batches_per_epoch = self.trainer.estimated_stepping_batches/self.config["trainer"]["epochs"]
         steps_per_epoch = batches_per_epoch // accumulate_grad_batches
 
@@ -238,7 +274,146 @@ class Model_MAE(pl.LightningModule):
             'optimizer': optimizer,
             'lr_scheduler': {
                 'scheduler': scheduler,
-                'interval': 'step',  # step-wise updating
-                'monitor': 'val_reconstruction_loss'  # Fixed metric name
+                'interval': 'step',
+                'monitor': 'val_reconstruction_loss'
             }
         }
+        
+    def check_encoder_decoder_separately(self):
+        """
+        Specifically check encoder vs decoder parameters.
+        """
+        print(f"\n{'='*60}")
+        print(f"GRADIENT CHECK - Step {self.global_step}")
+        print(f"{'='*60}")
+        
+        encoder_params = {'total': 0, 'with_grad': 0, 'without_grad': 0, 'frozen': 0, 'grad_norms': []}
+        decoder_params = {'total': 0, 'with_grad': 0, 'without_grad': 0, 'frozen': 0, 'grad_norms': []}
+        other_params = {'total': 0, 'with_grad': 0, 'without_grad': 0, 'frozen': 0, 'grad_norms': []}
+        
+        for name, param in self.named_parameters():
+            # Categorize parameters
+            if any(x in name for x in ['layers', 'latents']):  # Encoder
+                category = encoder_params
+            elif any(x in name for x in ['decoder', 'recon']):  # Decoder
+                category = decoder_params
+            else:  # Other (classifier, etc.)
+                category = other_params
+            
+            category['total'] += 1
+            
+            if not param.requires_grad:
+                category['frozen'] += 1
+            elif param.grad is None:
+                category['without_grad'] += 1
+                # Print specific parameters without gradients for debugging
+                if 'decoder' in name or 'recon' in name:
+                    print(f"⚠️ DECODER param without gradient: {name}")
+            else:
+                category['with_grad'] += 1
+                grad_norm = param.grad.norm().item()
+                category['grad_norms'].append(grad_norm)
+        
+        # Print results with more details
+        for cat_name, stats in [("ENCODER", encoder_params), ("DECODER", decoder_params), ("OTHER", other_params)]:
+            print(f"\n{cat_name}:")
+            print(f"  Total parameters: {stats['total']}")
+            print(f"  ✅ With gradients: {stats['with_grad']}")
+            print(f"  ⚠️  Without gradients: {stats['without_grad']}")
+            print(f"  ❌ Frozen: {stats['frozen']}")
+            
+            if stats['total'] > 0:
+                active_ratio = stats['with_grad'] / stats['total'] * 100
+                print(f"  📊 Active ratio: {active_ratio:.1f}%")
+                
+                # Show gradient statistics
+                if stats['grad_norms']:
+                    grad_norms = stats['grad_norms']
+                    avg_norm = np.mean(grad_norms)
+                    max_norm = np.max(grad_norms)
+                    min_norm = np.min(grad_norms)
+                    print(f"  📈 Grad norm - avg: {avg_norm:.6f}, max: {max_norm:.6f}, min: {min_norm:.6f}")
+                    
+                    # Warning for problematic gradients
+                    if avg_norm > 1.0:
+                        print(f"  ⚠️ High average gradient norm in {cat_name}")
+                    elif avg_norm < 1e-6:
+                        print(f"  ⚠️ Very low average gradient norm in {cat_name}")
+
+    def check_decoder_usage(self):
+        """
+        Check if decoder components are actually being used in forward pass.
+        Call this method to debug decoder connectivity.
+        """
+        print(f"\n{'='*60}")
+        print("DECODER CONNECTIVITY CHECK")
+        print(f"{'='*60}")
+        
+        # Check if decoder modules exist
+        decoder_modules = [
+            ('decoder_cross_attn', hasattr(self.encoder, 'decoder_cross_attn')),
+            ('decoder_ff', hasattr(self.encoder, 'decoder_ff')),
+            ('recon_head', hasattr(self.encoder, 'recon_head'))
+        ]
+        
+        print("Decoder modules present:")
+        for module_name, exists in decoder_modules:
+            status = "✅ Present" if exists else "❌ Missing"
+            print(f"  {module_name}: {status}")
+        
+        # Check if reconstruction mode is being used
+        print(f"\nForward pass info:")
+        print(f"  Current mode: {'MAE training' if hasattr(self, 'mode') else 'Unknown'}")
+        
+        # Recommendation
+        print(f"\n💡 Debugging recommendations:")
+        print(f"  1. Verify decoder is called with reconstruction=True")
+        print(f"  2. Check if mae_tokens are properly processed")
+        print(f"  3. Ensure transform.process_data works with query=True")
+        print(f"  4. Add print statements in reconstruct() method")
+
+    # Add a simple debug method to trace the forward pass
+    def debug_forward_pass(self, batch):
+        """
+        Debug method to trace what happens in the forward pass.
+        Call this manually to understand the data flow.
+        """
+        image, attention_mask, mae_tokens, mae_tokens_mask, labels = batch
+        
+        print(f"\n{'='*60}")
+        print("FORWARD PASS DEBUG")
+        print(f"{'='*60}")
+        
+        print(f"Input shapes:")
+        print(f"  image: {image.shape}")
+        print(f"  attention_mask: {attention_mask.shape}")
+        print(f"  mae_tokens: {mae_tokens.shape}")
+        print(f"  mae_tokens_mask: {mae_tokens_mask.shape}")
+        
+        # Call forward pass
+        try:
+            y_hat, y_mask = self.forward(image, attention_mask, mae_tokens, mae_tokens_mask, training=True)
+            print(f"\nOutput shapes:")
+            print(f"  y_hat: {y_hat.shape}")
+            print(f"  y_mask: {y_mask.shape}")
+            
+            print(f"\nOutput statistics:")
+            print(f"  y_hat mean: {y_hat.mean().item():.6f}")
+            print(f"  y_hat std: {y_hat.std().item():.6f}")
+            print(f"  y_hat min: {y_hat.min().item():.6f}")
+            print(f"  y_hat max: {y_hat.max().item():.6f}")
+            
+        except Exception as e:
+            print(f"❌ Forward pass failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # Usage: Add this to your training_step for debugging
+    def training_step_debug(self, batch, batch_idx):
+        # Debug only on first few steps
+        if batch_idx < 3:
+            self.debug_forward_pass(batch)
+            self.check_decoder_usage()
+        
+        # Your normal training step
+        return self.training_step(batch, batch_idx)
