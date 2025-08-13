@@ -111,32 +111,7 @@ class Model(pl.LightningModule):
             )
 
         if config["encoder"] == "Atomiser":
-            self.atos_masking=config["Atomiser"]["masking"]
-
-            self.resolutions=torch.from_numpy(np.array([60,10,10,10,20,20,20,10,20,60,60,20]))
-            
-            self.attention_regu=[float(k) for k in config["trainer"]["entropy_coef"] ]
-            self.attention_regu= torch.from_numpy( np.array(self.attention_regu) )
-
-
-            self.encoder = Atomiser(
-                config=self.config,
-                transform=self.transform,
-                depth=config["Atomiser"]["depth"],
-                num_latents=config["Atomiser"]["num_latents"],
-                latent_dim=config["Atomiser"]["latent_dim"],
-                cross_heads=config["Atomiser"]["cross_heads"],
-                latent_heads=config["Atomiser"]["latent_heads"],
-                cross_dim_head=config["Atomiser"]["cross_dim_head"],
-                latent_dim_head=config["Atomiser"]["latent_dim_head"],
-                num_classes=config["trainer"]["num_classes"],
-                attn_dropout=config["Atomiser"]["attn_dropout"],
-                ff_dropout=config["Atomiser"]["ff_dropout"],
-                weight_tie_layers=config["Atomiser"]["weight_tie_layers"],
-                self_per_cross_attn=config["Atomiser"]["self_per_cross_attn"],
-                final_classifier_head=config["Atomiser"]["final_classifier_head"],
-                masking=config["Atomiser"]["masking"]
-            )
+            self.encoder = Atomiser(config=self.config,transform=self.transform)
             
         if config["encoder"] == "Atomiser_tradi":
             self.atos_masking=config["Atomiser"]["masking"]
@@ -176,7 +151,7 @@ class Model(pl.LightningModule):
         
     def forward(self, x,mask,resolution,size,training=True):
         if "Atomiser" in self.config["encoder"]:
-            return self.encoder(x,mask,resolution,size,training=training)
+            return self.encoder(x,mask,resolution,size,training=training,reconstruction=False)
         else:
             if "Perceiver" in self.config["encoder"]:
                 tmp_resolutions=10/resolution#self.resolutions/resolution
@@ -190,10 +165,19 @@ class Model(pl.LightningModule):
                 
             
             return self.encoder(x)
+        
+    def on_fit_start(self):
+        # if starting with MAE
+        #self.encoder.unfreeze_encoder()
+        #self.encoder.freeze_decoder()
+        #self.encoder.unfreeze_classifier()
+        pass
                 
             
     def training_step(self, batch, batch_idx):
-        img, mask, resolution, size, labels, _ = batch
+        img, mask, _,_, labels= batch
+        resolution=1.0
+        size=1.0
 
         #print(f"[DEBUG] inital img diff (sample 0 vs 1): {(img[0,:,0] - img[1,:,0]).abs().mean().item()}, img0 mean: {img[0,:,0].mean().item()}, img0 max: {img[0,:,0].max().item()}, img0 min: {img[0,:,0].min().item()}")
         #print(f"[DEBUG] inital img diff (sample 0 vs 2): {(img[0,:,0] - img[2,:,0]).abs().mean().item()}, img1 mean: {img[1,:,0].mean().item()}, img1 max: {img[1,:,0].max().item()}, img1 min: {img[1,:,0].min().item()}")
@@ -235,18 +219,7 @@ class Model(pl.LightningModule):
         
         
         return {"train_loss": train_loss, "train_ap": train_ap}
-    
-    #def on_train_batch_end(self, outputs, batch, batch_idx):
-    #    # only on the very first real training batch, and only on rank 0
-    #    if batch_idx == 0 and self.trainer.global_rank == 0:
-    #        missing = []
-    #        for name, p in self.named_parameters():
-    #            if p.requires_grad and p.grad is None:
-    #                missing.append(name)
-    #        if missing:
-    #            print("⚠️ Still no grad for:\n" + "\n".join(missing))
-    #        else:
-    #            print("✅ All parameters got gradients!")
+
     
     def on_validation_epoch_start(self):
         self.trainer.datamodule.val_dataset.set_modality_mode("validation")
@@ -261,8 +234,9 @@ class Model(pl.LightningModule):
 
         
     def validation_step(self, batch, batch_idx,dataloader_idx=0):
-        img, mask,resolution,size, labels, _ = batch
-        
+        img, mask, _,_, labels= batch
+        resolution=1.0
+        size=1.0
         
         
 
@@ -429,9 +403,23 @@ class Model(pl.LightningModule):
         
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        # Import LAMB optimizer
+        from pytorch_optimizer import Lamb
+        
+        # LAMB optimizer optimized for MAE training
+        # Consider increasing batch size when using LAMB
+        optimizer = Lamb(
+            self.parameters(), 
+            lr=self.lr * 2.0,    # LAMB often works with higher learning rates
+            weight_decay=self.weight_decay,
+            betas=(0.9, 0.999),  
+            eps=1e-6,            
+            # For MAE, you might want to experiment with:
+            # - Higher learning rates (2x-10x of Adam)
+            # - Larger batch sizes (if memory allows)
+        )
 
-        accumulate_grad_batches = 64#self.config["trainer"].get("accumulate_grad_batches", 1)
+        accumulate_grad_batches = 64
         batches_per_epoch = self.trainer.estimated_stepping_batches/self.config["trainer"]["epochs"]
         steps_per_epoch = batches_per_epoch // accumulate_grad_batches
 
@@ -448,7 +436,9 @@ class Model(pl.LightningModule):
             'optimizer': optimizer,
             'lr_scheduler': {
                 'scheduler': scheduler,
-                'interval': 'step',  # step-wise updating
-                'monitor': 'val_mod_val_loss'
+                'interval': 'step',
+                'monitor': 'val_reconstruction_loss'
             }
         }
+        
+    

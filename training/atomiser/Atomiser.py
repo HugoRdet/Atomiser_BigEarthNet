@@ -1,24 +1,17 @@
-from .utils import*
-from .nn_comp import*
-from .encoding import*
-import matplotlib.pyplot as plt
-import numpy as np
-from pytorch_optimizer import Lamb
 import torch
-from torch import nn, einsum
+import torch.nn as nn
 import torch.nn.functional as F
-import seaborn as sns
-from einops import rearrange, repeat
-from einops.layers.torch import Reduce
-import wandb
-import time
-from torch.profiler import record_function
+import pytorch_lightning as pl
+from functools import wraps
+from einops import repeat
+from .nn_comp import PreNorm, CrossAttention, SelfAttention, FeedForward, LatentAttentionPooling
 
 
 def cache_fn(f):
+    """Cache function results for weight sharing across layers"""
     cache = dict()
     @wraps(f)
-    def cached_fn(*args, _cache = True, key = None, **kwargs):
+    def cached_fn(*args, _cache=True, key=None, **kwargs):
         if not _cache:
             return f(*args, **kwargs)
         nonlocal cache
@@ -30,349 +23,325 @@ def cache_fn(f):
     return cached_fn
 
 
-
-import torch
-
-
-
-def pruning(tokens: torch.Tensor,
-            attention_mask: torch.Tensor,
-            percent: float):
-    """
-    Randomly drop `percent`% of the *valid* tokens (those
-    where attention_mask is True in any batch element).
-
-    Returns:
-      - pruned_tokens:        Tensor of shape (B, K, D)
-      - pruned_attention_mask:Tensor of shape (B, K)
-      - keep_idx:             LongTensor of shape (K,), the indices in [0..N)
-    """
-    B, N, D = tokens.shape
-    device = tokens.device
-
-   
-    #valid = attention_mask.any(dim=0)           
-    #valid_idx = valid.nonzero(as_tuple=True)[0]   
-
-    keep_frac = 1.0 - (percent / 100.0)
-    #num_valid = valid_idx.size(0)
-    num_keep  = max(1, int(N * keep_frac))
-
-    perm      = torch.randperm(N, device=device)
-    kept_perm = perm[:num_keep]                   
-    #keep_idx  = valid_idx[kept_perm]             
-
-    pruned_tokens        = tokens[:, kept_perm, :].clone()      
-    pruned_attention_mask= attention_mask[:, kept_perm].clone()    
-
-    return pruned_tokens, pruned_attention_mask
-
-
-
-
-
-
 class Atomiser(pl.LightningModule):
-    def __init__(
-        self,
-        *,
-        config,
-        transform,
-    ):
+    """
+    Clean implementation of the Atomizer model for satellite image processing.
+    
+    The model processes tokens representing individual pixel-band measurements
+    with metadata (position, wavelength, etc.) through cross-attention and 
+    self-attention layers to learn representations for classification and reconstruction.
+    """
+    
+    def __init__(self, *, config, transform):
         super().__init__()
         self.save_hyperparameters(ignore=['transform'])
         
-        self.config=config
-        self.transform=transform
-        depth=int(self.config["Atomiser"]["depth"])
-        num_latents=int(self.config["Atomiser"]["num_latents"])
-        latent_dim=int(self.config["Atomiser"]["latent_dim"])
-        cross_heads=int(self.config["Atomiser"]["cross_heads"])
-        latent_heads=int(self.config["Atomiser"]["latent_heads"])
-        cross_dim_head=int(self.config["Atomiser"]["cross_dim_head"])
-        latent_dim_head=int(self.config["Atomiser"]["latent_dim_head"])
-        num_classes=self.config["trainer"]["num_classes"]
-        attn_dropout=self.config["Atomiser"]["attn_dropout"]
-        ff_dropout=self.config["Atomiser"]["ff_dropout"]
-        weight_tie_layers=self.config["Atomiser"]["weight_tie_layers"]
-        self_per_cross_attn=self.config["Atomiser"]["self_per_cross_attn"]
-        final_classifier_head=self.config["Atomiser"]["final_classifier_head"]             
-        self.input_axis = 2
+        # Store config and transform
+        self.config = config
+        self.transform = transform
         
-        self.max_tokens_forward = self.config["trainer"]["max_tokens_forward"]
-        self.max_tokens_val = self.config["trainer"]["max_tokens_val"]
-        self.max_tokens_reconstruction = self.config["trainer"]["max_tokens_reconstruction"]
+        # Extract model architecture parameters
+        self.depth = config["Atomiser"]["depth"]
+        self.num_latents = config["Atomiser"]["num_latents"]
+        self.latent_dim = config["Atomiser"]["latent_dim"]
+        self.cross_heads = config["Atomiser"]["cross_heads"]
+        self.latent_heads = config["Atomiser"]["latent_heads"]
+        self.cross_dim_head = config["Atomiser"]["cross_dim_head"]
+        self.latent_dim_head = config["Atomiser"]["latent_dim_head"]
+        self.num_classes = config["trainer"]["num_classes"]
+        self.attn_dropout = config["Atomiser"]["attn_dropout"]
+        self.ff_dropout = config["Atomiser"]["ff_dropout"]
+        self.weight_tie_layers = config["Atomiser"]["weight_tie_layers"]
+        self.self_per_cross_attn = config["Atomiser"]["self_per_cross_attn"]
+        self.final_classifier_head = config["Atomiser"]["final_classifier_head"]
         
+        # Token limits for different phases
+        self.max_tokens_forward = config["trainer"]["max_tokens_forward"]
+        self.max_tokens_val = config["trainer"]["max_tokens_val"]
         
-
-
-
-        # Compute input dim from encodings
+        # Compute input dimensions based on encoding configuration
+        self.input_dim = self._compute_input_dim()
+        self.query_dim_recon = self._compute_query_dim_recon()
         
-        dx = self.get_shape_attributes_config("pos")
-        dy = self.get_shape_attributes_config("pos")
-        dw = self.get_shape_attributes_config("wavelength")
-        db = self.get_shape_attributes_config("bandvalue")
-        #ok
-        input_dim = dx + dy + dw + db
-        query_dim_recon = dx + dy + dw 
-
-        # Initialize spectral params
-        #self.VV = nn.Parameter(torch.empty(dw))
-        #self.VH = nn.Parameter(torch.empty(dw))
-        #nn.init.trunc_normal_(self.VV, std=0.02, a=-2., b=2.)
-        #nn.init.trunc_normal_(self.VH, std=0.02, a=-2., b=2.)
-
-        # Latents
-        self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
-        nn.init.trunc_normal_(self.latents, std=0.02, a=-2., b=2.)
-
-        get_cross_attn = cache_fn(lambda: PreNorm(
-            latent_dim,
-            CrossAttention(
-                query_dim   = latent_dim,
-                context_dim = input_dim,
-                heads       = cross_heads,
-                dim_head    = cross_dim_head,
-                dropout     = attn_dropout,
-            ),
-            context_dim = input_dim
-        ))
-
-        get_cross_ff = cache_fn(lambda: PreNorm(
-            latent_dim,
-            FeedForward(latent_dim, dropout=ff_dropout)
-        ))
-
-        get_latent_attn = cache_fn(lambda: PreNorm(
-            latent_dim,
-            SelfAttention(
-                dim        = latent_dim,
-                heads      = latent_heads,
-                dim_head   = latent_dim_head,
-                dropout    = attn_dropout,
-                use_flash  = True
-            )
-        ))
-
-        get_latent_ff = cache_fn(lambda: PreNorm(
-            latent_dim,
-            FeedForward(latent_dim, dropout=ff_dropout)
-        ))
-        
-        self.layers = nn.ModuleList()
-        for i in range(depth):
-            cache_args = {'_cache': (i>0 and weight_tie_layers)}
-            # cross
-            cross_attn = get_cross_attn(**cache_args)
-            cross_ff   = get_cross_ff(**cache_args)
-            # self
-            self_attns = nn.ModuleList()
-            
-            for j in range(self_per_cross_attn):
-                self_attns.append(nn.ModuleList([
-                    get_latent_attn(**cache_args, key = j),
-                    get_latent_ff(**cache_args, key = j)
-                ]))
-
-            self.layers.append(nn.ModuleList([cross_attn, cross_ff, self_attns]))
-
-  
-
-        # Decoder TODO
-        recon_dim = 1 #we just reconstruct the reflectance
-        
-        
-        
-        self.recon_cross = PreNorm(
-            query_dim_recon,   
-            CrossAttention(
-                query_dim   = query_dim_recon,   
-                context_dim = latent_dim,   
-                heads       = latent_heads,
-                dim_head    = latent_dim_head,
-                dropout=0.0
-            ),
-            context_dim=latent_dim
-        )
-        
-        self.recon_dim = recon_dim  # keep for reference
-        hidden = max(128, query_dim_recon * 2)
-        self.recon_mlp = nn.Sequential(
-            nn.LayerNorm(query_dim_recon),
-            nn.Linear(query_dim_recon, hidden),
-            nn.GELU(),                # ReLU works too; GELU is smoother
-            nn.Linear(hidden, hidden),
-            nn.GELU(),
-            nn.Linear(hidden, self.recon_dim)  # linear output for regression
-        )
-
-        self.recon_ff = PreNorm(
-            query_dim_recon, 
-            FeedForward(query_dim_recon, dropout=ff_dropout)  
-        )
-
-       
-        self.recon_head = nn.Sequential(
-            nn.LayerNorm(query_dim_recon),      
-            nn.Linear(query_dim_recon, recon_dim) 
-        )
-
-        
-        
-        # Classifier
-        if final_classifier_head:
-            self.to_logits = nn.Sequential(
-                LatentAttentionPooling(latent_dim, heads=latent_heads, dim_head=latent_dim_head, dropout=attn_dropout),
-                nn.LayerNorm(latent_dim),
-                nn.Linear(latent_dim, num_classes)
-            )
-        
-            
-    def _set_requires_grad(self, module: nn.Module, flag: bool):
-        for p in module.parameters():
-            p.requires_grad = flag
-
-    def freeze_encoder(self):
-        # freeze all attention/ffn layers used by self.encoder
-        self._set_requires_grad(self.layers, False)
-        # freeze latents parameter
-        if hasattr(self, "latents"):
-            self.latents.requires_grad = False
-
-    def unfreeze_encoder(self):
-        self._set_requires_grad(self.layers, True)
-        if hasattr(self, "latents"):
-            self.latents.requires_grad = True
-            
-    def _set_requires_grad(self, module: nn.Module, flag: bool):
-        for p in module.parameters():
-            p.requires_grad = flag
-
-    def freeze_decoder(self):
-        for m in (self.recon_cross, self.recon_ff, self.recon_head):
-            self._set_requires_grad(m, False)
-
-    def unfreeze_decoder(self):
-        for m in (self.recon_cross, self.recon_ff, self.recon_head):
-            self._set_requires_grad(m, True)
-
-    def freeze_classifier(self):
-        self._set_requires_grad(self.to_logits, False)
-
-    def unfreeze_classifier(self):
-        self._set_requires_grad(self.to_logits, True)
-
+        # Initialize model components
+        self._init_latents()
+        self._init_encoder_layers()
+        self._init_decoder()
+        self._init_classifier()
     
-
-
-       
-
-
-    def get_shape_attributes_config(self,attribute):
-        if self.config["Atomiser"][attribute+"_encoding"]=="NOPE":
+    def _compute_input_dim(self):
+        """Compute total input dimension from all encodings"""
+        pos_dim = self._get_encoding_dim("pos")
+        wavelength_dim = self._get_encoding_dim("wavelength") 
+        bandvalue_dim = self._get_encoding_dim("bandvalue")
+        return 2 * pos_dim + wavelength_dim + bandvalue_dim  # 2x pos for x,y
+    
+    def _compute_query_dim_recon(self):
+        """Compute query dimension for reconstruction (no band values)"""
+        pos_dim = self._get_encoding_dim("pos")
+        wavelength_dim = self._get_encoding_dim("wavelength")
+        return 2 * pos_dim + wavelength_dim  # position + wavelength only
+    
+    def _get_encoding_dim(self, attribute):
+        """Get encoding dimension for a specific attribute"""
+        encoding_type = self.config["Atomiser"][f"{attribute}_encoding"]
+        
+        if encoding_type == "NOPE":
             return 0
-        if self.config["Atomiser"][attribute+"_encoding"]=="NATURAL":
+        elif encoding_type == "NATURAL":
             return 1
-        if self.config["Atomiser"][attribute+"_encoding"]=="FF":
-            if self.config["Atomiser"][attribute+"_num_freq_bands"]==-1:
-                return int(self.config["Atomiser"][attribute+"_max_freq"])*2+1
+        elif encoding_type == "FF":
+            num_bands = self.config["Atomiser"][f"{attribute}_num_freq_bands"]
+            max_freq = self.config["Atomiser"][f"{attribute}_max_freq"]
+            if num_bands == -1:
+                return int(max_freq) * 2 + 1
             else:
-                return int(self.config["Atomiser"][attribute+"_num_freq_bands"])*2+1
-        
-        if self.config["Atomiser"][attribute+"_encoding"]=="GAUSSIANS":
-            return int(len(self.config["wavelengths_encoding"].keys()))
-        
-        
-    def reconstruct(self, latents, mae_tokens, mae_tokens_mask):
-        """
-        latents:        [B, L, D]  (output of encoder)
-        mae_tokens:     [B, N, Din]  raw tokens for positions you want to reconstruct
-        mae_tokens_mask:[B, N]  boolean, True where padding/invalid (same convention as encoder)
-        returns:
-            preds: [B, K, recon_dim]  predictions (K <= N if limited)
-            out_mask: [B, K]          boolean mask aligned to preds (True = invalid)
-        """
-
-        
-        query_tokens = mae_tokens.clone()
-        query_mask   = mae_tokens_mask.clone()
-        
-        query_tokens, query_mask = self.transform.process_data(query_tokens, query_mask,query=True)
-        
-        preds = self.recon_cross(query_tokens, context=latents, mask=None)  # [B, K, D]
-        preds= self.recon_mlp(preds)
-        
-        return preds, query_mask
-
-
-    
-                
-    
-    
-    def encoder(self,x,tokens,mask, training=True):
-        #performs the encoding of the latents through the multiple cross attention and self attention layers
-        #tokens: [B, K, D]
-        #mask: [B, K]
-        #latents: [N, D]
-        
-        for idx_layer, (cross_attn, cross_ff, self_attns) in enumerate(self.layers):
-            token_limit=self.max_tokens_forward
-            if not training:
-                token_limit=self.max_tokens_val
-            
-            permutation = torch.randperm(tokens.shape[1], device=tokens.device)
-            tmp_tokens = tokens[:,permutation[:token_limit]].clone()
-            tmp_mask = mask[:,permutation[:token_limit]].clone()
-            
-            tokens, tokens_mask = self.transform.process_data(tmp_tokens, tmp_mask)
-            tokens_mask= tokens_mask.bool()
-            tokens = tokens.masked_fill_(tokens_mask.unsqueeze(-1), 0.)
-            
-            
-            
-            x_ca = cross_attn(x, context=tokens, mask=None,id=idx_layer)
-            
-            x = x_ca + x
-            
-            # Feed-forward after CA
-            x_ff = cross_ff(x)
-            x = x_ff + x
-            
-            # Self-attention + FF blocks
-            for blk_idx, (sa, ff) in enumerate(self_attns):
-                x_sa = sa(x)
-                
-                x = x_sa + x
-                
-
-                x_ff2 = ff(x)
-                
-                x = x_ff2 + x
-                
-
-        return x
-
-
-
-    
-    def forward(self, data, mask,mae_tokens,mae_tokens_mask, training=True, reconstruction=True):
-        #extraction of the batch size
-        b = data.shape[0]   
-        
-        
-        
-
-        # Initialize latents
-        x = repeat(self.latents, 'n d -> b n d', b=b) 
-        
-        #x=self.encoder(x, data, mask, training=training)
-        
-        #reconstruction
-        if reconstruction:
-            preds, out_mask = self.reconstruct(x, mae_tokens, mae_tokens_mask)
-            
-            return preds, out_mask
+                return int(num_bands) * 2 + 1
+        elif encoding_type == "GAUSSIANS":
+            return len(self.config["wavelengths_encoding"])
         else:
-            x = self.to_logits(x)
-            return x
+            raise ValueError(f"Unknown encoding type: {encoding_type}")
+    
+    def _init_latents(self):
+        """Initialize learnable latent vectors"""
+        self.latents = nn.Parameter(torch.randn(self.num_latents, self.latent_dim))
+        nn.init.trunc_normal_(self.latents, std=0.02, a=-2., b=2.)
+    
+    def _init_encoder_layers(self):
+        """Initialize encoder layers with optional weight sharing"""
+        # Create cached layer factories for weight sharing
+        get_cross_attn = cache_fn(lambda: 
+            CrossAttention(
+                query_dim=self.latent_dim,
+                context_dim=self.input_dim,
+                heads=self.cross_heads,
+                dim_head=self.cross_dim_head,
+                dropout=self.attn_dropout,
+            ))
+        
+        get_cross_ff = cache_fn(lambda: PreNorm(
+            self.latent_dim,
+            FeedForward(self.latent_dim, dropout=self.ff_dropout)
+        ))
+        
+        get_latent_attn = cache_fn(lambda: PreNorm(
+            self.latent_dim,
+            SelfAttention(
+                dim=self.latent_dim,
+                heads=self.latent_heads,
+                dim_head=self.latent_dim_head,
+                dropout=self.attn_dropout,
+                use_flash=True
+            )
+        ))
+        
+        get_latent_ff = cache_fn(lambda: PreNorm(
+            self.latent_dim,
+            FeedForward(self.latent_dim, dropout=self.ff_dropout)
+        ))
+        
+        # Build encoder layers
+        self.encoder_layers = nn.ModuleList()
+        for i in range(self.depth):
+            # Enable caching for weight sharing (except first layer)
+            cache_args = {'_cache': (i > 0 and self.weight_tie_layers)}
+            
+            # Cross-attention and feedforward
+            cross_attn = get_cross_attn(**cache_args)
+            cross_ff = get_cross_ff(**cache_args)
+            
+            # Self-attention blocks
+            self_attns = nn.ModuleList()
+            for j in range(self.self_per_cross_attn):
+                self_attns.append(nn.ModuleList([
+                    get_latent_attn(**cache_args, key=j),
+                    get_latent_ff(**cache_args, key=j)
+                ]))
+            
+            self.encoder_layers.append(nn.ModuleList([cross_attn, cross_ff, self_attns]))
+    
+    def _init_decoder(self):
+        """Initialize decoder for reconstruction"""
+        self.recon_cross = CrossAttention(
+                query_dim=self.query_dim_recon,
+                context_dim=self.latent_dim,
+                heads=self.latent_heads,
+                dim_head=self.latent_dim_head,
+                dropout=0.0)
+        
+        # Simple output head (no redundant LayerNorm)
+        self.recon_head = nn.Linear(self.query_dim_recon, 1)  # Reconstruct reflectance only
+    
+    def _init_classifier(self):
+        """Initialize classification head"""
+        if self.final_classifier_head:
+            self.classifier = nn.Sequential(
+                LatentAttentionPooling(
+                    self.latent_dim, 
+                    heads=self.latent_heads, 
+                    dim_head=self.latent_dim_head, 
+                    dropout=self.attn_dropout
+                ),
+                nn.LayerNorm(self.latent_dim),
+                nn.Linear(self.latent_dim, self.num_classes)
+            )
+        else:
+            self.classifier = nn.Identity()
+    
+    def _subsample_tokens(self, tokens, mask, max_tokens, training=True):
+        """Randomly subsample tokens to fit memory constraints"""
+        B, N, D = tokens.shape
+        
+        if N <= max_tokens:
+            return tokens, mask
+        
+        # Random permutation for subsampling
+        device = tokens.device
+        perm = torch.randperm(N, device=device)[:max_tokens]
+        
+        return tokens[:, perm], mask[:, perm]
+    
+    def encode(self, tokens, mask, training=True):
+        """
+        Encode tokens through the transformer layers
+        
+        Args:
+            tokens: [B, N, D] input tokens
+            mask: [B, N] attention mask (True = masked/invalid)
+            training: whether in training mode
+            
+        Returns:
+            latents: [B, num_latents, latent_dim] encoded representations
+        """
+        B = tokens.shape[0]
+        
+        # Initialize latents
+        latents = repeat(self.latents, 'n d -> b n d', b=B)
+        
+        # Process through encoder layers
+        for layer_idx, (cross_attn, cross_ff, self_attns) in enumerate(self.encoder_layers):
+            # Subsample tokens if needed
+            max_tokens = self.max_tokens_forward if training else self.max_tokens_val
+            current_tokens, current_mask = self._subsample_tokens(tokens, mask, max_tokens, training)
+            
+            # Process tokens through transform
+            
+            processed_tokens, processed_mask = self.transform.process_data(current_tokens, current_mask)
+            processed_mask = processed_mask.bool()
+            
+            
+            # Mask invalid tokens
+            processed_tokens = processed_tokens.masked_fill_(processed_mask.unsqueeze(-1), 0.0)
+            
+            # Cross-attention: latents attend to tokens
+            latents = cross_attn(latents, context=processed_tokens, mask=~processed_mask) + latents
+            
+            # Cross feedforward
+            latents = cross_ff(latents) + latents
+            
+            # Self-attention blocks
+            for self_attn, self_ff in self_attns:
+                latents = self_attn(latents) + latents
+                latents = self_ff(latents) + latents
+        
+        return latents
+    
+    def reconstruct(self, latents, query_tokens, query_mask):
+        """
+        Reconstruct token values from latent representations
+        
+        Args:
+            latents: [B, num_latents, latent_dim] encoded representations
+            query_tokens: [B, N, D] tokens to reconstruct (without band values)
+            query_mask: [B, N] mask for query tokens
+            
+        Returns:
+            predictions: [B, N, 1] reconstructed values
+            output_mask: [B, N] mask aligned with predictions
+        """
+        # Process query tokens (remove band values, keep position + wavelength)
+        processed_query, processed_mask = self.transform.process_data(
+            query_tokens, query_mask, query=True
+        )
+        
+        # Cross-attention: query tokens attend to latents
+        attended = self.recon_cross(processed_query, context=latents, mask=None)
+        
+        # Project to output
+        predictions = self.recon_head(attended)
+        
+        return predictions, processed_mask
+    
+    def classify(self, latents):
+        """
+        Classify from latent representations
+        
+        Args:
+            latents: [B, num_latents, latent_dim] encoded representations
+            
+        Returns:
+            logits: [B, num_classes] classification logits
+        """
+        return self.classifier(latents)
+    
+    def forward(self, data, mask, mae_tokens=None, mae_tokens_mask=None, 
+                training=True, task="reconstruction"):
+        """
+        Forward pass of the Atomizer
+        
+        Args:
+            data: [B, N, D] input tokens
+            mask: [B, N] attention mask
+            mae_tokens: [B, M, D] tokens for reconstruction (optional)
+            mae_tokens_mask: [B, M] mask for reconstruction tokens (optional)
+            training: whether in training mode
+            task: "classification", "reconstruction", or "encoder"
+            
+        Returns:
+            For classification: [B, num_classes] logits
+            For reconstruction: ([B, M, 1] predictions, [B, M] mask)
+            For encoder: [B, num_latents, latent_dim] latent representations
+        """
+        # Encode input tokens to latent representations
+        latents = self.encode(data, mask, training=training)
+        
+        if task == "encoder":
+            return latents
+        elif task == "reconstruction":
+            return self.reconstruct(latents, mae_tokens, mae_tokens_mask)
+        else:  # task == "classification"
+            return self.classify(latents)
+    
+    # Utility methods for freezing/unfreezing components
+    def _set_requires_grad(self, module, flag):
+        """Set requires_grad for all parameters in a module"""
+        for param in module.parameters():
+            param.requires_grad = flag
+    
+    def freeze_encoder(self):
+        """Freeze encoder parameters"""
+        self._set_requires_grad(self.encoder_layers, False)
+        self.latents.requires_grad = False
+    
+    def unfreeze_encoder(self):
+        """Unfreeze encoder parameters"""
+        self._set_requires_grad(self.encoder_layers, True)
+        self.latents.requires_grad = True
+    
+    def freeze_decoder(self):
+        """Freeze decoder parameters"""
+        self._set_requires_grad(self.recon_cross, False)
+        self._set_requires_grad(self.recon_head, False)
+    
+    def unfreeze_decoder(self):
+        """Unfreeze decoder parameters"""
+        self._set_requires_grad(self.recon_cross, True)
+        self._set_requires_grad(self.recon_head, True)
+    
+    def freeze_classifier(self):
+        """Freeze classifier parameters"""
+        self._set_requires_grad(self.classifier, False)
+    
+    def unfreeze_classifier(self):
+        """Unfreeze classifier parameters"""
+        self._set_requires_grad(self.classifier, True)

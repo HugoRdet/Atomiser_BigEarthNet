@@ -20,20 +20,25 @@ def default(val, d):
 # PreNorm wrapper
 # ---------------------------------
 class PreNorm(nn.Module):
-    def __init__(self, dim: int, fn: nn.Module, context_dim: int = None):
+    """Apply LayerNorm before the function, with optional context normalization."""
+    
+    def __init__(self, dim: int, fn: nn.Module, context_dim: int | None = None, eps: float = 1e-5):
         super().__init__()
-        self.norm = nn.LayerNorm(dim)
+        self.norm = nn.LayerNorm(dim, eps=eps)
         self.fn = fn
-        self.norm_context = nn.LayerNorm(context_dim) if exists(context_dim) else None
-        self.fn_type = type(fn).__name__
+        self.norm_context = nn.LayerNorm(context_dim, eps=eps) if context_dim is not None else None
 
     def forward(self, x, **kwargs):
-        
         x = self.norm(x)
-        if exists(self.norm_context) and 'context' in kwargs:
-            ctx = kwargs['context']
-            kwargs['context'] = self.norm_context(ctx)
+        if self.norm_context is not None and ('context' in kwargs) and (kwargs['context'] is not None):
+            # Create new kwargs dict to avoid mutating caller's dict
+            kwargs = {**kwargs, 'context': self.norm_context(kwargs['context'])}
         return self.fn(x, **kwargs)
+
+
+
+def exists(val):
+    return val is not None
 
 
 class GEGLU(nn.Module):

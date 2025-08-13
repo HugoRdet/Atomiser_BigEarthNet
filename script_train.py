@@ -89,7 +89,7 @@ data_module = Tiny_BigEarthNetDataModule(
     dataset_config=read_yaml(bands_yaml),
     config_model=config_model,
     look_up=lookup_table,
-    dataset_class=Tiny_BigEarthNet
+    dataset_class=Tiny_BigEarthNet_MAE
 )
 
 

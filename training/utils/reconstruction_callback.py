@@ -115,7 +115,8 @@ class CustomMAEReconstructionCallback(pl.Callback):
                     image_tokens_mask,
                     mae_tokens_batch,
                     mae_tokens_mask_batch,
-                    training=False
+                    training=False,
+                    task="reconstruction"
                 )
                 
                 # Remove batch dimension for visualization
@@ -127,7 +128,7 @@ class CustomMAEReconstructionCallback(pl.Callback):
                 
                 y_hat = rearrange(y_hat, "(b h w) c -> b h w c", b=12, h=120, w=120, c=1).squeeze(-1)
                 
-                print(f"✓ Successfully reconstructed sample {dataset_idx}: GT shape {ground_truth.shape}, Pred shape {y_hat.shape}, Mask shape {mask_MAE_res.shape}")
+                print(f"✓ Successfully reconstructed sample {dataset_idx}")
                 
             except Exception as e:
                 print(f"Error in model forward pass for sample {dataset_idx}: {e}")

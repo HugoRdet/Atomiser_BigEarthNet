@@ -411,14 +411,16 @@ class Tiny_BigEarthNet_MAE(Dataset):
         image = None
         label = None
         id_img = None
+        idx=0 # DEBUGGGGG
 
         # Ensure HDF5 file is open
         f = self._ensure_h5_open()
 
-        image = torch.tensor(f[f'image_0'][:])[2:,:,:]  # Fixed: use idx, not 0
+        image = torch.tensor(f[f'image_{idx}'][:])[2:,:,:]  # Fixed: use idx, not 0
+        #image= random_rotate_flip(image)
         attention_mask = torch.zeros(image.shape)
-        label = torch.tensor(f[f'label_0'][:])
-        id_img = int(f[f'id_0'][()])
+        label = torch.tensor(f[f'label_{idx}'][:])
+        id_img = int(f[f'id_{idx}'][()])
         
         mask_MAE = None
 
@@ -474,7 +476,9 @@ class Tiny_BigEarthNet_MAE(Dataset):
         
         
         
+        
         image = torch.tensor(f[f'image_{idx}'][:])[2:,:,:]  
+        #image= random_rotate_flip(image)
         attention_mask = torch.zeros(image.shape)
         
         mask_MAE = None
@@ -502,19 +506,16 @@ class Tiny_BigEarthNet_MAE(Dataset):
         image = rearrange(image, "b h w c -> (b h w) c")
         attention_mask = rearrange(attention_mask, "c h w -> (c h w)")
         MAE_mask = rearrange(mask_MAE, "c h w -> (c h w)")
-        
-        # For visualization, we want all tokens to be reconstructed
         mae_tokens = image.clone()
-        # Filter valid tokens
-        image = image[MAE_mask == 0.0]          # image get resized and invalid bands removed
+        image = image[attention_mask==0.0]          # image get resized and invalid bands removed
         
         
+        mask_MAE = MAE_mask[attention_mask==0.0]    # same for mask
         
+        input_tokens = image[mask_MAE==0.0].clone()
+        attention_mask=torch.zeros(input_tokens.shape[0])
         
-        
-        
-
-        return image, attention_mask, mae_tokens, mask_MAE_res
+        return input_tokens, attention_mask, mae_tokens, mask_MAE_res
 
     def close(self):
         """Close HDF5 file if it's open."""
