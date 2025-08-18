@@ -81,7 +81,8 @@ model = Model_MAE(
 )
 
 data_module = Tiny_BigEarthNetDataModule(
-    f"./data/Tiny_BigEarthNet/{args.dataset_name}",
+    #f"./data/Tiny_BigEarthNet/{args.dataset_name}",
+    f"./data/custom_flair/tiny",
     batch_size=config_model["dataset"]["batchsize"],
     num_workers=4,
     trans_modalities=modalities_trans,
@@ -90,12 +91,17 @@ data_module = Tiny_BigEarthNetDataModule(
     dataset_config=read_yaml(bands_yaml),
     config_model=config_model,
     look_up=lookup_table,
-    dataset_class=Tiny_BigEarthNet_MAE
+    dataset_class=FLAIR_MAE
 )
 
-reconstruction_callback = CustomMAEReconstructionCallback(
-        config=config_model
+reconstruction_callback = CustomMAEReconstructionCallback_FLAIR(
+    config=config_model
     )
+
+#knn_callback_multiclass=KNNEvaluationCallback(
+#    config=config_model,
+#    knn_datamodule=data_module
+#)
 
 
 
@@ -108,7 +114,7 @@ checkpoint_val_mod_train = ModelCheckpoint(
     verbose=True,
 )
 accumulator = GradientAccumulationScheduler(scheduling={0:1})
-
+#reconstruction_callback,knn_callback_multiclass
 # Trainer
 trainer = Trainer(
     strategy="ddp_find_unused_parameters_true",#"ddp",
@@ -120,8 +126,8 @@ trainer = Trainer(
     log_every_n_steps=5,
     callbacks=[ accumulator,reconstruction_callback], #checkpoint_val_mod_train,
     default_root_dir="./checkpoints/",
-    overfit_batches=1,
     #profiler=profiler,           # ← attach the PyTorchProfiler here
+    overfit_batches=1
 )
 
 # Fit the model

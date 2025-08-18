@@ -12,4 +12,5 @@ from .create_dataset_h5 import*
 from .utils_dataset_transformation_tradi import *
 from .mask_generator import *
 from .reconstruction_callback import *
-from .knn_callback import *
+from .knn_callback_multiclass import *
+from .utils_dataset_h5_FLAIR import*

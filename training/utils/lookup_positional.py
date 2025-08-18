@@ -12,6 +12,7 @@ class Lookup_encoding(pl.LightningModule):
         self.table=None
         self.table_wave=None
 
+
         self.init_config()
         self.init_lookup_table()
         self.init_lookup_table_wave()
@@ -22,20 +23,20 @@ class Lookup_encoding(pl.LightningModule):
         for tmp_modality in self.config["train"]:
             resolution=self.config["train"][tmp_modality]['resolution']
             size= self.config["train"][tmp_modality]['size']
-            modalities.append((10.0/resolution,int(size*120)))
+            modalities.append((10.0/resolution,int(size*512)))
 
             
         
         for tmp_modality in self.config["test"]:
             resolution=self.config["test"][tmp_modality]['resolution']
             size= self.config["test"][tmp_modality]['size']
-            modalities.append((10.0/resolution,int(size*120)))
+            modalities.append((10.0/resolution,int(size*512)))
 
 
         for tmp_modality in self.config["validation"]:
             resolution=self.config["validation"][tmp_modality]['resolution']
             size= self.config["validation"][tmp_modality]['size']
-            modalities.append((10.0/resolution,int(size*120)))
+            modalities.append((10.0/resolution,int(size*512)))
         
         
         
@@ -71,8 +72,12 @@ class Lookup_encoding(pl.LightningModule):
                 
                 bandwidth=band_content["bandwidth"]
                 central_wavelength=band_content["central_wavelength"]
-                table[(int(bandwidth),int(central_wavelength))]=idx_torch_array
-                idx_torch_array+=1
+                key=(int(bandwidth),int(central_wavelength))
+                if not key in table:
+                    table[key]=idx_torch_array
+                    idx_torch_array+=1
+           
+                    
                 
             
                    

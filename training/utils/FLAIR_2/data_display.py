@@ -177,6 +177,64 @@ def get_sample(idx,images, masks, sentinel_imgs, centroid,sentinel_products,sent
 import numpy as np
 
 
+def compute_channel_mean_std_FLAIR(images, masks, sentinel_imgs, centroid, sentinel_products,sentinel_masks,aer_mtd):
+    # Initialize accumulators for the 'im' images (5 channels)
+    im_sum    = np.zeros(5, dtype=np.float64)
+    im_sum_sq = np.zeros(5, dtype=np.float64)
+    im_count  = np.zeros(5, dtype=np.float64)
+    
+    # Initialize accumulators for the 'sen_spatch' images (10 channels)
+    sen_sum    = np.zeros(10, dtype=np.float64)
+    sen_sum_sq = np.zeros(10, dtype=np.float64)
+    sen_count  = np.zeros(10, dtype=np.float64)
+
+
+    time_series_data=[]
+    
+    for img_idx in range(len(images)):
+        # Ensure you use the correct index variable (img_idx) when calling get_sample.
+        im, _ ,sen_spatch, _ , _ , _= get_sample(img_idx, images, masks, sentinel_imgs, centroid, sentinel_products,sentinel_masks,aer_mtd)
+        
+        # Convert to float64 to avoid issues with integer precision
+        im = im.astype(np.float64)
+        # Process the 5-channel image: shape (5, 512, 512)
+        for ch in range(im.shape[0]):
+            im_channel = im[ch]
+            im_sum[ch]    += im_channel.sum()
+            im_sum_sq[ch] += np.square(im_channel).sum()
+            im_count[ch]  += im_channel.size
+        
+        # Convert sen_spatch to float64 as well
+        sen_spatch = sen_spatch.astype(np.float64)
+        time_series_data.append(sen_spatch.shape[0])
+        # Process the sen_spatch image: shape (T, 10, 40, 40)
+        # Sum over the time and spatial dimensions (axes 0, 2, and 3)
+        sen_channel_sum    = sen_spatch.sum(axis=(0, 2, 3))  # shape: (10,)
+        sen_channel_sum_sq = np.square(sen_spatch).sum(axis=(0, 2, 3))
+        
+        sen_sum    += sen_channel_sum
+        sen_sum_sq += sen_channel_sum_sq
+        
+        # Each channel in sen_spatch has T * 40 * 40 pixels
+        count = sen_spatch.shape[0] * sen_spatch.shape[2] * sen_spatch.shape[3]
+        sen_count += count  # same count for all channels
+        
+    # Compute per-channel mean and variance for "im"
+    im_mean = im_sum / im_count
+    im_var  = im_sum_sq / im_count - np.square(im_mean)
+    # Clip any small negative values due to floating-point precision
+    im_var  = np.maximum(im_var, 0)
+    im_std  = np.sqrt(im_var)
+    
+    # Compute per-channel mean and variance for "sen_spatch"
+    sen_mean = sen_sum / sen_count
+    sen_var  = sen_sum_sq / sen_count - np.square(sen_mean)
+    sen_var  = np.maximum(sen_var, 0)
+    sen_std  = np.sqrt(sen_var)
+    
+    return {"im_mean": im_mean.astype(float), "im_std": im_std.astype(float), "sen_mean": sen_mean.astype(float), "sen_std": sen_std.astype(float),"times_series":time_series_data}
+
+
 
 
 

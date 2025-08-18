@@ -27,6 +27,7 @@ import warnings
 import wandb
 from transformers import get_cosine_schedule_with_warmup
 import seaborn as sns
+from pytorch_optimizer import Lamb
 
 #BigEarthNet...
 warnings.filterwarnings("ignore", message="No positive samples found in target, recall is undefined. Setting recall to one for all thresholds.")
@@ -131,14 +132,13 @@ class Model_MAE(pl.LightningModule):
         return {"train_reconstruction_loss": avg_train_loss}
     
     def on_validation_epoch_start(self):
-        return
+
         self.trainer.datamodule.val_dataset.set_modality_mode("validation")
         self.val_losses = []  # Reset for new epoch
         
     
         
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        return
         image, attention_mask, mae_tokens, mae_tokens_mask, labels = batch
 
         y_hat, y_mask = self.forward(image, attention_mask, mae_tokens, mae_tokens_mask, training=False)
@@ -185,7 +185,7 @@ class Model_MAE(pl.LightningModule):
         return loss    
 
     def on_validation_epoch_end(self):
-        return 
+
         
             
         
@@ -241,7 +241,7 @@ class Model_MAE(pl.LightningModule):
             'lr_scheduler': {
                 'scheduler': scheduler,
                 'interval': 'step',  # step-wise updating
-                'monitor': 'val_mod_val_loss'
+                'monitor': 'val_reconstruction_loss'
             }
         }
             

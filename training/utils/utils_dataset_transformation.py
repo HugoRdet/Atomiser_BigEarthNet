@@ -282,7 +282,8 @@ class transformations_config(nn.Module):
     def get_wavelength_encoding(
         self,
         token_data: torch.Tensor,  # [batch, tokens, data] 
-        device=None
+        device=None,
+        dico_params=None
     ):
         
        
@@ -292,7 +293,9 @@ class transformations_config(nn.Module):
         
         # Check if we have cached encodings
         if not hasattr(self, cache_key):
-            self._precompute_global_wavelength_encodings(device)
+            self._precompute_global_wavelength_encodings(device,dico_params=dico_params)
+            
+        self._update_global_wavelength_encodings( device,dico_params=dico_params)
         
         cached_encoding = getattr(self, cache_key)  # [total_positions, num_gaussians]
         
@@ -424,7 +427,7 @@ class transformations_config(nn.Module):
         cache_key = f"positional_encoding_fourrier"
         setattr(self, cache_key, global_encoding)
         
-    def _precompute_global_wavelength_encodings(self, device):
+    def _precompute_global_wavelength_encodings(self, device,dico_params=None):
         """
         Precompute fourrier encodings for ALL possible pixel positions across all modalities.
         This creates a single global lookup table.
@@ -437,9 +440,16 @@ class transformations_config(nn.Module):
         # Compute encodings for each modality and place them at correct global indices
         for modality in tqdm(self.lookup_table.table_wave.keys(), desc="Precomputing Wavelength encodings"):
             bandwidth, central_wavelength = modality
-
-
-            encoded=self.compute_gaussian_band_max_encoding([central_wavelength],[bandwidth], num_points=150)
+            
+            #defined in the bands info config file
+            encoded=None
+            if bandwidth==-1 and central_wavelength==-1:
+                encoded=dico_params["elevation"].unsqueeze(0).unsqueeze(0)
+                
+            
+            
+            if encoded==None:
+                encoded=self.compute_gaussian_band_max_encoding([central_wavelength],[bandwidth], num_points=150)
             id_modality= self.lookup_table.table_wave[(bandwidth, central_wavelength)]
             
             
@@ -450,6 +460,39 @@ class transformations_config(nn.Module):
         # Store the global encoding
         cache_key = f"wavelength_encoding_gaussian"
         setattr(self, cache_key, global_encoding)
+        
+    def _update_global_wavelength_encodings(self, device,dico_params=None):
+
+        
+        # Get total number of positions from lookup table
+        max_global_index =len(self.lookup_table.table_wave.keys())
+        cache_key=cache_key = f"wavelength_encoding_gaussian"
+        cached_encoding = getattr(self, cache_key)
+        
+        
+        # Compute encodings for each modality and place them at correct global indices
+        for modality in tqdm(self.lookup_table.table_wave.keys(), desc="Precomputing Wavelength encodings"):
+            bandwidth, central_wavelength = modality
+            
+            #defined in the bands info config file
+            encoded=None
+            
+            if bandwidth==-1 and central_wavelength==-1:
+                encoded=dico_params["elevation"].unsqueeze(0).unsqueeze(0)
+                print("encoded:",encoded[0,0,:10])
+                
+    
+            if encoded==None:
+                continue
+            id_modality= self.lookup_table.table_wave[(bandwidth, central_wavelength)]
+            
+            
+            
+            # Place encodings at correct global indices
+            cached_encoding[id_modality] = encoded[0,0,:]
+        
+        # Store the global encoding
+        setattr(self, cache_key, cached_encoding)
         
 
     def _compute_1d_gaussian_encoding_vectorized(self, positions, half_res, centers, sigma, device):
@@ -715,9 +758,9 @@ class transformations_config(nn.Module):
          
 
 
-    def apply_transformations_optique(self, im_sen, mask_sen, mode,query=False):
+    def apply_transformations_optique(self, im_sen, mask_sen, mode,query=False,dico_params=None):
         if query:
-            central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device)
+            central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device,dico_params=dico_params)
             p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
             
     
@@ -729,7 +772,7 @@ class transformations_config(nn.Module):
             return tokens, mask_sen
         
         # 2) Wavelength encoding
-        central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device)
+        central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device,dico_params=dico_params)
         # 3) Band‑value encoding
         value_processed = self.get_bvalue_processing(im_sen[:,:,0])
         
@@ -754,15 +797,15 @@ class transformations_config(nn.Module):
         return tokens, mask_sen
     
     
-    def get_tokens(self,img,mask,mode="optique",modality="s2",wave_encoding=None,query=False):
+    def get_tokens(self,img,mask,mode="optique",modality="s2",wave_encoding=None,query=False,dico_params=None):
         
   
 
         if mode=="optique":
-            return self.apply_transformations_optique(img,mask,modality,query=query)
+            return self.apply_transformations_optique(img,mask,modality,query=query,dico_params=dico_params)
         
 
-    def process_data(self,img,mask,query=False):
+    def process_data(self,img,mask,query=False,dico_params=None):
         
         L_tokens=[]
         L_masks=[]
@@ -774,7 +817,7 @@ class transformations_config(nn.Module):
             #    tmp_img,tmp_mask=self.apply_temporal_spatial_transforms(img, mask)
             
             #with record_function("Atomizer/process_data/get_tokens"):
-            tokens_s2,tokens_mask_s2=self.get_tokens(img,mask,mode="optique",modality="s2",query=query)
+            tokens_s2,tokens_mask_s2=self.get_tokens(img,mask,mode="optique",modality="s2",query=query,dico_params=dico_params)
             
             return tokens_s2,tokens_mask_s2
 
