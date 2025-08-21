@@ -55,13 +55,9 @@ class Atomiser(pl.LightningModule):
         self.self_per_cross_attn = config["Atomiser"]["self_per_cross_attn"]
         self.final_classifier_head = config["Atomiser"]["final_classifier_head"]
         
-        self.dico_params=dict()
         
         #self.VV = nn.Parameter(torch.empty(dw))
         #self.VH = nn.Parameter(torch.empty(dw))
-        self.elevation_ = nn.Parameter(torch.empty(self._get_encoding_dim("wavelength") ))
-        nn.init.trunc_normal_(self.elevation_, std=0.02, a=-2., b=2.)
-        self.dico_params["elevation"]=self.elevation_
         #nn.init.trunc_normal_(self.VH, std=0.02, a=-2., b=2.)
         
         # Token limits for different phases
@@ -94,7 +90,7 @@ class Atomiser(pl.LightningModule):
     def _get_encoding_dim(self, attribute):
         """Get encoding dimension for a specific attribute"""
         encoding_type = self.config["Atomiser"][f"{attribute}_encoding"]
-        
+
         if encoding_type == "NOPE":
             return 0
         elif encoding_type == "NATURAL":
@@ -108,6 +104,8 @@ class Atomiser(pl.LightningModule):
                 return int(num_bands) * 2 + 1
         elif encoding_type == "GAUSSIANS":
             return len(self.config["wavelengths_encoding"])
+        elif encoding_type == "GAUSSIANS_POS":
+            return 420
         else:
             raise ValueError(f"Unknown encoding type: {encoding_type}")
     
@@ -179,7 +177,19 @@ class Atomiser(pl.LightningModule):
                 dropout=0.0)
         
         # Simple output head (no redundant LayerNorm)
-        self.recon_head = nn.Linear(self.query_dim_recon, 1)  # Reconstruct reflectance only
+        self.recon_tologits = nn.Linear(self.query_dim_recon, 1)  # Reconstruct reflectance only
+        
+        self.recon_head = nn.Sequential(
+            nn.LayerNorm(self.query_dim_recon),
+            nn.Linear(self.query_dim_recon,self.query_dim_recon*2),
+            nn.GELU(),                # ReLU works too; GELU is smoother
+            nn.LayerNorm(self.query_dim_recon*2),
+            nn.Linear(self.query_dim_recon*2,self.query_dim_recon),
+            nn.GELU(),
+            nn.LayerNorm(self.query_dim_recon),
+            nn.Linear(self.query_dim_recon,self.query_dim_recon)  # linear output for regression
+        )
+        #self.decoder_ff = PreNorm(self.query_dim_recon, FeedForward(queries_dim))
     
     def _init_classifier(self):
         """Initialize classification head"""
@@ -226,7 +236,6 @@ class Atomiser(pl.LightningModule):
         
         # Initialize latents
         latents = repeat(self.latents, 'n d -> b n d', b=B)
-        return latents
         
         # Process through encoder layers
         for layer_idx, (cross_attn, cross_ff, self_attns) in enumerate(self.encoder_layers):
@@ -236,7 +245,7 @@ class Atomiser(pl.LightningModule):
             
             # Process tokens through transform
             
-            processed_tokens, processed_mask = self.transform.process_data(current_tokens, current_mask,dico_params=self.dico_params)
+            processed_tokens, processed_mask = self.transform.process_data(current_tokens, current_mask,query=False)
             processed_mask = processed_mask.bool()
             
             
@@ -245,7 +254,7 @@ class Atomiser(pl.LightningModule):
             
             # Cross-attention: latents attend to tokens
             latents = cross_attn(latents, context=processed_tokens, mask=~processed_mask) + latents
-            
+            print(latents.mean(dim=(1,2)))
             # Cross feedforward
             latents = cross_ff(latents) + latents
             
@@ -271,14 +280,15 @@ class Atomiser(pl.LightningModule):
         """
         # Process query tokens (remove band values, keep position + wavelength)
         processed_query, processed_mask = self.transform.process_data(
-            query_tokens, query_mask, query=True,dico_params=self.dico_params
+            query_tokens, query_mask, query=True
         )
         
         # Cross-attention: query tokens attend to latents
         attended = self.recon_cross(processed_query, context=latents, mask=None)
-        
+       
         # Project to output
-        predictions = self.recon_head(attended)
+        predictions = attended+self.recon_head(attended)
+        predictions = self.recon_tologits(predictions)
         
         return predictions, processed_mask
     

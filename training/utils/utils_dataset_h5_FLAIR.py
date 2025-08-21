@@ -263,7 +263,7 @@ class FLAIR_MAE(Dataset):
         res_band=[]
         res_wave=[]
         for idx, band in enumerate(self.bands_info["bands_FLAIR_info"]):
-            band_data = self.bands_info["bands_sen2_info"][band]
+            band_data = self.bands_info["bands_FLAIR_info"][band]
             res_band.append(band_data["bandwidth"])
             res_wave.append(band_data["central_wavelength"])
         self.bandwidths=torch.Tensor(res_band)
@@ -273,7 +273,7 @@ class FLAIR_MAE(Dataset):
         image_size = image_shape[-1]
         channels_size = image_shape[0]
 
-        tmp_resolution = int(10.0/new_resolution*1000)
+        tmp_resolution = int(new_resolution*1000)
         global_offset = self.look_up.table[(tmp_resolution, image_size)]
         
         # Create LOCAL pixel indices (0 to image_size-1)
@@ -383,6 +383,7 @@ class FLAIR_MAE(Dataset):
         label = torch.tensor(f[f'mask_{idx}'][:], dtype=torch.float32)  # [512,512]
         label = self.process_mask(label)
         attention_mask=torch.zeros(im_aerial.shape)
+        
         #sen_mask = f[f'sen_mask_{idx}'][:]
         #aerial_date = f[f'aerial_mtd_{idx}'].asstr()[()]
 
@@ -397,11 +398,12 @@ class FLAIR_MAE(Dataset):
         #    image, attention_mask, id_img, mode=self.mode, modality_mode=self.modality_mode, 
         #    f_s=self.fixed_size, f_r=self.fixed_resolution
         #)
-        new_resolution=1.0
+        new_resolution=0.2 #m/px
         
         self.mask_gen.H, self.mask_gen.W = im_aerial.shape[1], im_aerial.shape[2]
         mask_MAE = self.mask_gen.generate_mask()
         mask_MAE = mask_MAE.repeat(im_aerial.shape[0], 1, 1)  # Repeat for all bands
+
         
         idxs_bandwidths = self.get_wavelengths_coordinates(im_aerial.shape)
         x_indices, y_indices = self.get_position_coordinates(im_aerial.shape, new_resolution)
@@ -413,6 +415,8 @@ class FLAIR_MAE(Dataset):
             y_indices.float(),        # Global Y indices  
             idxs_bandwidths.float()   # Bandwidth indices
         ], dim=-1)
+ 
+        
 
 
 
@@ -422,9 +426,13 @@ class FLAIR_MAE(Dataset):
         attention_mask = einops.rearrange(attention_mask, "c h w -> (c h w)")
         MAE_mask = einops.rearrange(mask_MAE, "c h w -> (c h w)")
         
+        
+        
         # Filter valid tokens
         image = image[attention_mask==0.0]          # image get resized and invalid bands removed
         mask_MAE = MAE_mask[attention_mask==0.0]    # same for mask
+        
+        
         
         # Shuffle tokens
         im_aerial, mask_MAE = self.shuffle_arrays([image, mask_MAE])
@@ -455,7 +463,7 @@ class FLAIR_MAE(Dataset):
         attention_mask=torch.zeros(image.shape)
         
         mask_MAE = None
-        new_resolution = 1.0
+        new_resolution = 0.2 #in M/px
         
         self.mask_gen.H, self.mask_gen.W = image.shape[1], image.shape[2]
         mask_MAE = self.mask_gen.generate_mask()
@@ -481,6 +489,7 @@ class FLAIR_MAE(Dataset):
         MAE_mask = einops.rearrange(mask_MAE, "c h w -> (c h w)")
         mae_tokens = image.clone()
         image = image[attention_mask==0.0]          # image get resized and invalid bands removed
+        
         
         
         mask_MAE = MAE_mask[attention_mask==0.0]    # same for mask

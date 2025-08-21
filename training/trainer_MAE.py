@@ -107,6 +107,7 @@ class Model_MAE(pl.LightningModule):
         self.train_losses = []  # Reset for new epoch
         
     def on_train_epoch_end(self):
+                
         # Calculate average training loss manually
         if len(self.train_losses) > 0:
             avg_train_loss = np.mean(self.train_losses)
@@ -185,11 +186,8 @@ class Model_MAE(pl.LightningModule):
         return loss    
 
     def on_validation_epoch_end(self):
+        
 
-        
-            
-        
-        
         # Compute MSE metric
         val_mse_val = self.metric_MSE_val_mod_val.compute()
         self.log("val mod val MSE", val_mse_val, on_step=False, on_epoch=True, logger=True, sync_dist=True)
@@ -221,29 +219,64 @@ class Model_MAE(pl.LightningModule):
         
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        if self.config["optimizer"]=="ADAM":
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
 
-        accumulate_grad_batches = 64#self.config["trainer"].get("accumulate_grad_batches", 1)
-        batches_per_epoch = self.trainer.estimated_stepping_batches/self.config["trainer"]["epochs"]
-        steps_per_epoch = batches_per_epoch // accumulate_grad_batches
+            accumulate_grad_batches = 1#self.config["trainer"].get("accumulate_grad_batches", 1)
+            batches_per_epoch = self.trainer.estimated_stepping_batches/self.config["trainer"]["epochs"]
+            steps_per_epoch = batches_per_epoch // accumulate_grad_batches
 
-        total_steps = self.config["trainer"]["epochs"] * steps_per_epoch
-        warmup_steps = int(0.1 * total_steps)  # 10% warmup
+            total_steps = self.config["trainer"]["epochs"] * steps_per_epoch
+            warmup_steps = 200#int(0.1 * total_steps)  # 10% warmup
 
-        scheduler = get_cosine_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=warmup_steps,
-            num_training_steps=total_steps
-        )
+            scheduler = get_cosine_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=warmup_steps,
+                num_training_steps=total_steps
+            )
 
-        return {
-            'optimizer': optimizer,
-            'lr_scheduler': {
-                'scheduler': scheduler,
-                'interval': 'step',  # step-wise updating
-                'monitor': 'val_reconstruction_loss'
+            return {
+                'optimizer': optimizer,
+                'lr_scheduler': {
+                    'scheduler': scheduler,
+                    'interval': 'step',  # step-wise updating
+                    'monitor': 'val_reconstruction_loss'
+                }
             }
-        }
+        else:
+            import torch_optimizer as optim
             
+            optimizer = optim.Lamb(
+                self.parameters(), 
+                lr=self.lr, 
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
+                eps=1e-6
+            )
+            
+            accumulate_grad_batches = 64  # self.config["trainer"].get("accumulate_grad_batches", 1)
+            batches_per_epoch = self.trainer.estimated_stepping_batches / self.config["trainer"]["epochs"]
+            steps_per_epoch = batches_per_epoch // accumulate_grad_batches
+            
+            total_steps = self.config["trainer"]["epochs"] * steps_per_epoch
+            warmup_steps = int(0.1 * total_steps)  # 10% warmup
+            
+            scheduler = get_cosine_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=warmup_steps,
+                num_training_steps=total_steps
+            )
+            
+            return {
+                'optimizer': optimizer,
+                'lr_scheduler': {
+                    'scheduler': scheduler,
+                    'interval': 'step',  # step-wise updating
+                    'monitor': 'val_reconstruction_loss'
+                }
+            }
+        
+        
+                
         
         

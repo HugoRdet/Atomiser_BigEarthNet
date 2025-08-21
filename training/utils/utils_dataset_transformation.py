@@ -52,6 +52,13 @@ class transformations_config(nn.Module):
         #self.register_buffer("positional_encoding_fourrier", None)
         self.resolutions_x_sizes_cached={}
         
+        self.config=config
+        
+        
+        self.elevation_ = nn.Parameter(torch.empty(self._get_encoding_dim("wavelength") ))
+        nn.init.trunc_normal_(self.elevation_, std=0.02, a=-2., b=2.)
+        
+        
         
         
 
@@ -67,7 +74,6 @@ class transformations_config(nn.Module):
         )
   
 
-        self.config=config
   
         self.nb_tokens_limit=config["trainer"]["max_tokens"]
 
@@ -84,6 +90,27 @@ class transformations_config(nn.Module):
         
         
         
+    def _get_encoding_dim(self, attribute):
+        """Get encoding dimension for a specific attribute"""
+        encoding_type = self.config["Atomiser"][f"{attribute}_encoding"]
+        
+        if encoding_type == "NOPE":
+            return 0
+        elif encoding_type == "NATURAL":
+            return 1
+        elif encoding_type == "FF":
+            num_bands = self.config["Atomiser"][f"{attribute}_num_freq_bands"]
+            max_freq = self.config["Atomiser"][f"{attribute}_max_freq"]
+            if num_bands == -1:
+                return int(max_freq) * 2 + 1
+            else:
+                return int(num_bands) * 2 + 1
+        elif encoding_type == "GAUSSIANS":
+            return len(self.config["wavelengths_encoding"])
+        elif encoding_type == "GAUSSIANS_POS":
+            return 420
+        else:
+            raise ValueError(f"Unknown encoding type: {encoding_type}")
         
         
 
@@ -174,10 +201,16 @@ class transformations_config(nn.Module):
         
 
         # -- 2) compute positional scaling per band: [B, C]
-        pos_scalings = (size * resolution) / 400.0
+        
+        pos_scalings = (size * resolution) / 400
+        
   
         max_freq  = self.config["Atomiser"]["pos_max_freq"]
         num_bands = self.config["Atomiser"]["pos_num_freq_bands"]
+        
+        
+        
+        
 
         
         
@@ -196,7 +229,8 @@ class transformations_config(nn.Module):
         token_data: torch.Tensor,  # [batch, tokens, data] 
         num_gaussians: int,        
         sigma: float,
-        device=None
+        device=None,
+        extremums=None
     ):
         """
         Compute Gaussian encoding for tokens with explicit position information.
@@ -217,7 +251,7 @@ class transformations_config(nn.Module):
         
         # Check if we have cached encodings
         if not hasattr(self, cache_key):
-            self._precompute_global_gaussian_encodings(num_gaussians, sigma, device, cache_key)
+            self._precompute_global_gaussian_encodings(num_gaussians, sigma, device, cache_key,extremums=extremums)
         
         cached_encoding = getattr(self, cache_key)  # [total_positions, num_gaussians]
         
@@ -234,77 +268,25 @@ class transformations_config(nn.Module):
         
         return result
 
-    def _precompute_global_gaussian_encodings(self, num_gaussians, sigma, device, cache_key):
-        """
-        Precompute Gaussian encodings for ALL possible pixel positions across all modalities.
-        This creates a single global lookup table.
-        """
+    
         
-        # Get total number of positions from lookup table
-        max_global_index = sum(size for _, size in self.lookup_table.table.keys())
-        
-        # Create Gaussian centers (same for all positions)
-        centers = torch.linspace(-1200.0, 1200.0, num_gaussians, device=device)
-        
-        # Initialize global encoding tensor
-        global_encoding = torch.zeros(max_global_index, num_gaussians, device=device)
-        
-        # Compute encodings for each modality and place them at correct global indices
-        for modality in tqdm(self.lookup_table.modalities, desc="Precomputing Gaussian encodings"):
-            resolution, image_size = modality
-            
-            # Get global offset for this modality
-            
-            
-            
-            modality_key = (int(1000 * resolution), image_size)
-            global_offset = self.lookup_table.table[modality_key]
-            
-            # Create physical coordinates for this modality's pixels
-            physical_coords = torch.linspace(
-                (-image_size/2.) * resolution, 
-                (image_size/2.) * resolution, 
-                steps=image_size, 
-                device=device
-            )
-            
-            # Compute Gaussian encoding for this modality
-            modality_encoding = self._compute_1d_gaussian_encoding_vectorized(
-                physical_coords, resolution/2.0, centers, sigma, device
-            )  # [image_size, num_gaussians]
-            
-            # Place encodings at correct global indices
-            global_encoding[global_offset:global_offset + image_size] = modality_encoding
-        
-        # Store the global encoding
-        setattr(self, cache_key, global_encoding)
-        
-    def get_wavelength_encoding(
-        self,
-        token_data: torch.Tensor,  # [batch, tokens, data] 
-        device=None,
-        dico_params=None
-    ):
-        
-       
-        
-        # Create cache key based on encoding parameters only
+    def get_wavelength_encoding(self, token_data: torch.Tensor, device=None):
         cache_key = f"wavelength_encoding_gaussian"
-        
-        # Check if we have cached encodings
         if not hasattr(self, cache_key):
-            self._precompute_global_wavelength_encodings(device,dico_params=dico_params)
+            self._precompute_global_wavelength_encodings(device)
+
+        cached_encoding = getattr(self, cache_key)              # [num_ids, 19] (no grad)
+        global_x_indices = token_data.long()                    # [B, T]
+        encoding_wavelengths = cached_encoding[global_x_indices]# [B, T, 19]
+
+        elevation_key = (-1, -1)
+        if elevation_key in self.lookup_table.table_wave:
+            elevation_idx = self.lookup_table.table_wave[elevation_key]
+            elevation_mask = (global_x_indices == elevation_idx)        # [B, T] bool
             
-        self._update_global_wavelength_encodings( device,dico_params=dico_params)
-        
-        cached_encoding = getattr(self, cache_key)  # [total_positions, num_gaussians]
-        
-        
-        global_x_indices = token_data.long()  # [batch, tokens]
-        encoding_wavelengths = cached_encoding[global_x_indices]  # [batch, tokens, num_gaussians]
-       
-        
-            
+            elev_vec = self.elevation_.view(1, 1, -1).expand_as(encoding_wavelengths)
+            encoding_wavelengths = torch.where(elevation_mask.unsqueeze(-1), elev_vec, encoding_wavelengths)
+
         return encoding_wavelengths
         
     def get_fourrier_encoding(
@@ -346,8 +328,9 @@ class transformations_config(nn.Module):
         
         
         return result
-
-    def _precompute_global_gaussian_encodings(self, num_gaussians, sigma, device, cache_key):
+    
+    
+    def _precompute_global_gaussian_encodings(self, num_gaussians, sigma, device, cache_key,extremums=1200):
         """
         Precompute Gaussian encodings for ALL possible pixel positions across all modalities.
         This creates a single global lookup table.
@@ -357,7 +340,7 @@ class transformations_config(nn.Module):
         max_global_index = sum(size for _, size in self.lookup_table.table.keys())
         
         # Create Gaussian centers (same for all positions)
-        centers = torch.linspace(-1200.0, 1200.0, num_gaussians, device=device)
+        centers = torch.linspace(-extremums, extremums, num_gaussians, device=device)
         
         # Initialize global encoding tensor
         global_encoding = torch.zeros(max_global_index, num_gaussians, device=device)
@@ -391,6 +374,7 @@ class transformations_config(nn.Module):
         
         # Store the global encoding
         setattr(self, cache_key, global_encoding)
+
         
         
     def _precompute_global_fourrier_encodings(self, device):
@@ -423,11 +407,12 @@ class transformations_config(nn.Module):
             # Place encodings at correct global indices
             global_encoding[global_offset:global_offset + image_size] = pos
         
+        
         # Store the global encoding
         cache_key = f"positional_encoding_fourrier"
         setattr(self, cache_key, global_encoding)
         
-    def _precompute_global_wavelength_encodings(self, device,dico_params=None):
+    def _precompute_global_wavelength_encodings(self, device):
         """
         Precompute fourrier encodings for ALL possible pixel positions across all modalities.
         This creates a single global lookup table.
@@ -440,59 +425,23 @@ class transformations_config(nn.Module):
         # Compute encodings for each modality and place them at correct global indices
         for modality in tqdm(self.lookup_table.table_wave.keys(), desc="Precomputing Wavelength encodings"):
             bandwidth, central_wavelength = modality
+            id_modality= self.lookup_table.table_wave[(bandwidth, central_wavelength)]
             
             #defined in the bands info config file
             encoded=None
             if bandwidth==-1 and central_wavelength==-1:
-                encoded=dico_params["elevation"].unsqueeze(0).unsqueeze(0)
+                continue
                 
             
-            
             if encoded==None:
-                encoded=self.compute_gaussian_band_max_encoding([central_wavelength],[bandwidth], num_points=150)
-            id_modality= self.lookup_table.table_wave[(bandwidth, central_wavelength)]
+                encoded=self.compute_gaussian_band_max_encoding([central_wavelength],[bandwidth], num_points=150).squeeze(0).squeeze(0)
             
-            
-            
-            # Place encodings at correct global indices
-            global_encoding[id_modality] = encoded[0,0,:]
+            global_encoding[id_modality] = encoded
         
         # Store the global encoding
         cache_key = f"wavelength_encoding_gaussian"
         setattr(self, cache_key, global_encoding)
         
-    def _update_global_wavelength_encodings(self, device,dico_params=None):
-
-        
-        # Get total number of positions from lookup table
-        max_global_index =len(self.lookup_table.table_wave.keys())
-        cache_key=cache_key = f"wavelength_encoding_gaussian"
-        cached_encoding = getattr(self, cache_key)
-        
-        
-        # Compute encodings for each modality and place them at correct global indices
-        for modality in tqdm(self.lookup_table.table_wave.keys(), desc="Precomputing Wavelength encodings"):
-            bandwidth, central_wavelength = modality
-            
-            #defined in the bands info config file
-            encoded=None
-            
-            if bandwidth==-1 and central_wavelength==-1:
-                encoded=dico_params["elevation"].unsqueeze(0).unsqueeze(0)
-                print("encoded:",encoded[0,0,:10])
-                
-    
-            if encoded==None:
-                continue
-            id_modality= self.lookup_table.table_wave[(bandwidth, central_wavelength)]
-            
-            
-            
-            # Place encodings at correct global indices
-            cached_encoding[id_modality] = encoded[0,0,:]
-        
-        # Store the global encoding
-        setattr(self, cache_key, cached_encoding)
         
 
     def _compute_1d_gaussian_encoding_vectorized(self, positions, half_res, centers, sigma, device):
@@ -532,58 +481,6 @@ class transformations_config(nn.Module):
         
         return encoding  # [size, num_gaussians]
 
-
-
-
-    def apply_temporal_spatial_transforms(self, img, mask):
-        """
-        Apply random 90-degree rotation and flip to each item in a batch of 
-        [B, T, H, W, C] images and masks. Rotation and flip are applied consistently 
-        across all channels and time steps for each sample.
-        
-        Args:
-            img (torch.Tensor): Input image tensor of shape [B, T, H, W, C]
-            mask (torch.Tensor): Input mask tensor of shape [B, T, H, W, C]
-            
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: Transformed image and mask tensors
-        """
-
-        B, T, H, W, C = img.shape
-        img = img.permute(0, 4, 1, 2, 3)  # [B, C, T, H, W]
-        mask = mask.permute(0, 4, 1, 2, 3)  # [B, C, T, H, W]
-
-        img_out = img.clone()
-        mask_out = mask.clone()
-
-        for b in range(B):
-            # --- Choose random 90-degree rotation ---
-            k = random.randint(0, 3)  # rotate 0, 90, 180, or 270 degrees
-            if k > 0:
-                img_out[b] = torch.rot90(img_out[b], k=k, dims=(-2, -1))  # rotate over H-W
-                mask_out[b] = torch.rot90(mask_out[b], k=k, dims=(-2, -1))
-
-            # --- Random horizontal flip ---
-            if random.random() > 0.5:
-                img_out[b] = img_out[b].flip(-1)  # flip W
-                mask_out[b] = mask_out[b].flip(-1)
-
-            # --- Random vertical flip ---
-            if random.random() > 0.5:
-                img_out[b] = img_out[b].flip(-2)  # flip H
-                mask_out[b] = mask_out[b].flip(-2)
-
-        # Back to [B, T, H, W, C]
-        img_out = img_out.permute(0, 2, 3, 4, 1)
-        mask_out = mask_out.permute(0, 2, 3, 4, 1)
-
-        return img_out, mask_out
-
-
-
-
-
-
     def fourier_encode_scalar(self,scalar,size,max_freq,num_bands):
         
         tmp_encoding=fourier_encode(torch.Tensor(scalar), max_freq=max_freq, num_bands = num_bands) # B T C
@@ -597,12 +494,6 @@ class transformations_config(nn.Module):
   
         return tmp_encoding
     
-    def scaling_frequencies(self,x):
-        return (1000/x)-1.5
-    
-    
-    
-
 
     def compute_gaussian_band_max_encoding(self, lambda_centers, bandwidths, num_points=50,modality="S2"):
 
@@ -709,61 +600,16 @@ class transformations_config(nn.Module):
         return res
     
 
-    def time_processing(self,time_stamp,img_size=-1):
-        dt = time_stamp.astype('datetime64[s]')
 
-        years = dt.astype('datetime64[Y]').astype(int) + 1970
-        norm_year = (years - 1999) / 27.0
-
-        day_of_year = (dt - dt.astype('datetime64[Y]')) / np.timedelta64(1, 'D')
-        norm_day = (day_of_year - 1) / 366.0
-       
-        return (norm_day.astype(np.float32),norm_year.astype(np.float32))
-    
-    
-    def time_encoding(self,time_stamp,img_size=-1):
- 
-        norm_year = time_stamp[1]
-
-       
-        norm_day = time_stamp[0]
-       
-        
-
-
-        y_max_freq=self.config["Atomiser"]["year_max_freq"]
-        y_num_bands=self.config["Atomiser"]["year_num_freq_bands"]
-        d_max_freq=self.config["Atomiser"]["day_max_freq"]
-        d_num_bands=self.config["Atomiser"]["day_num_freq_bands"]
-
-      
-
-            
-
-        if self.config["Atomiser"]["day_encoding"]=="FF":
-            y_max_freq=self.config["Atomiser"]["year_max_freq"]
-            y_num_bands=self.config["Atomiser"]["year_num_freq_bands"]
-            d_max_freq=self.config["Atomiser"]["day_max_freq"]
-            d_num_bands=self.config["Atomiser"]["day_num_freq_bands"]
-
-            year_encoding=self.fourier_encode_scalar(norm_year,img_size,y_max_freq,y_num_bands)
-            day_encoding=self.fourier_encode_scalar(norm_day,img_size,d_max_freq,d_num_bands)
-
-            time_encoding=torch.cat([year_encoding,day_encoding],dim=-1)
-
-            
-            
-            return  time_encoding
-        return None
-         
-
-
-    def apply_transformations_optique(self, im_sen, mask_sen, mode,query=False,dico_params=None):
+    def apply_transformations_optique(self, im_sen, mask_sen, mode,query=False):
         if query:
-            central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device,dico_params=dico_params)
+            central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device)
             p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
-            
-    
+            #band_post_proc_0=self.get_gaussian_encoding(im_sen,8,100, im_sen.device,extremums=600)
+            #band_post_proc_1=self.get_gaussian_encoding(im_sen,16,40.0, im_sen.device,extremums=600)
+            #band_post_proc_2=self.get_gaussian_encoding(im_sen,32,10.0, im_sen.device,extremums=300)
+            #band_post_proc_3=self.get_gaussian_encoding(im_sen,64,3.0, im_sen.device,extremums=150)
+            #band_post_proc_4=self.get_gaussian_encoding(im_sen,300,0.2, im_sen.device,extremums=150)
             tokens = torch.cat([
                 central_wavelength_processing,
                 p_x
@@ -772,15 +618,18 @@ class transformations_config(nn.Module):
             return tokens, mask_sen
         
         # 2) Wavelength encoding
-        central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device,dico_params=dico_params)
+        central_wavelength_processing = self.get_wavelength_encoding(im_sen[:,:,3],device=im_sen.device)
         # 3) Band‑value encoding
         value_processed = self.get_bvalue_processing(im_sen[:,:,0])
         
         p_x=self.get_fourrier_encoding(im_sen,device=im_sen.device)
-        #band_post_proc_0=self.get_gaussian_encoding(im_sen,8,100, im_sen.device)
-        #band_post_proc_1=self.get_gaussian_encoding(im_sen,16,40.0, im_sen.device)
-        #band_post_proc_2=self.get_gaussian_encoding(im_sen,32,15.0, im_sen.device)
+        #band_post_proc_0=self.get_gaussian_encoding(im_sen,8,100, im_sen.device,extremums=600)
+        #band_post_proc_1=self.get_gaussian_encoding(im_sen,16,40.0, im_sen.device,extremums=600)
+        #band_post_proc_2=self.get_gaussian_encoding(im_sen,32,10.0, im_sen.device,extremums=300)
+        #band_post_proc_3=self.get_gaussian_encoding(im_sen,64,3.0, im_sen.device,extremums=150)
         #band_post_proc_3=self.get_gaussian_encoding(im_sen,73,1.0, im_sen.device)
+        #band_post_proc_4=self.get_gaussian_encoding(im_sen,300,0.2, im_sen.device,extremums=150)
+        
 
         #with record_function("Atomizer/process_data/get_tokens/cat"):
         
@@ -788,7 +637,11 @@ class transformations_config(nn.Module):
             value_processed,
             central_wavelength_processing,
             p_x
-            
+            #band_post_proc_0,
+            #band_post_proc_1,
+            #band_post_proc_2,
+            #band_post_proc_3,
+            #band_post_proc_4,
         ], dim=-1)
 
         
@@ -797,15 +650,15 @@ class transformations_config(nn.Module):
         return tokens, mask_sen
     
     
-    def get_tokens(self,img,mask,mode="optique",modality="s2",wave_encoding=None,query=False,dico_params=None):
+    def get_tokens(self,img,mask,mode="optique",modality="s2",wave_encoding=None,query=False):
         
   
 
         if mode=="optique":
-            return self.apply_transformations_optique(img,mask,modality,query=query,dico_params=dico_params)
+            return self.apply_transformations_optique(img,mask,modality,query=query)
         
 
-    def process_data(self,img,mask,query=False,dico_params=None):
+    def process_data(self,img,mask,query=False):
         
         L_tokens=[]
         L_masks=[]
@@ -817,7 +670,7 @@ class transformations_config(nn.Module):
             #    tmp_img,tmp_mask=self.apply_temporal_spatial_transforms(img, mask)
             
             #with record_function("Atomizer/process_data/get_tokens"):
-            tokens_s2,tokens_mask_s2=self.get_tokens(img,mask,mode="optique",modality="s2",query=query,dico_params=dico_params)
+            tokens_s2,tokens_mask_s2=self.get_tokens(img,mask,mode="optique",modality="s2",query=query)
             
             return tokens_s2,tokens_mask_s2
 

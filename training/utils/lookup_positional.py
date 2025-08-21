@@ -23,20 +23,23 @@ class Lookup_encoding(pl.LightningModule):
         for tmp_modality in self.config["train"]:
             resolution=self.config["train"][tmp_modality]['resolution']
             size= self.config["train"][tmp_modality]['size']
-            modalities.append((10.0/resolution,int(size*512)))
+            modalities.append((10.0/resolution,int(size*120)))
 
             
         
         for tmp_modality in self.config["test"]:
             resolution=self.config["test"][tmp_modality]['resolution']
             size= self.config["test"][tmp_modality]['size']
-            modalities.append((10.0/resolution,int(size*512)))
+            modalities.append((10.0/resolution,int(size*120)))
 
 
         for tmp_modality in self.config["validation"]:
             resolution=self.config["validation"][tmp_modality]['resolution']
             size= self.config["validation"][tmp_modality]['size']
-            modalities.append((10.0/resolution,int(size*512)))
+            modalities.append((10.0/resolution,int(size*120)))
+        
+          
+        modalities.append((0.2,512))
         
         
         

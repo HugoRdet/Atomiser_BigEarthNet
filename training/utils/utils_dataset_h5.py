@@ -321,8 +321,9 @@ class Tiny_BigEarthNet_MAE(Dataset):
         image_size = image_shape[-1]
         channels_size = image_shape[0]
 
-        tmp_resolution = int(10.0/new_resolution*1000)
+        tmp_resolution = int(new_resolution*1000)
         global_offset = self.look_up.table[(tmp_resolution, image_size)]
+        
         
         # Create LOCAL pixel indices (0 to image_size-1)
         y_indices = torch.arange(image_size).unsqueeze(1).expand(image_size, image_size)
@@ -410,23 +411,28 @@ class Tiny_BigEarthNet_MAE(Dataset):
         image = None
         label = None
         id_img = None
+        idx=0
         
 
         # Ensure HDF5 file is open
         f = self._ensure_h5_open()
 
         image = torch.tensor(f[f'image_{idx}'][:])[2:,:,:]  # Fixed: use idx, not 0
-        image = random_rotate_flip(image)
+        #image = random_rotate_flip(image)
         attention_mask = torch.zeros(image.shape)
         label = torch.tensor(f[f'label_{idx}'][:])
         id_img = int(f[f'id_{idx}'][()])
         
         mask_MAE = None
 
-        image, attention_mask, new_resolution = self.transform.apply_transformations(
+        image, attention_mask, new_resolution_factor = self.transform.apply_transformations(
             image, attention_mask, id_img, mode=self.mode, modality_mode=self.modality_mode, 
             f_s=self.fixed_size, f_r=self.fixed_resolution
         )
+        
+        new_resolution=10.0/new_resolution_factor #in m/px
+        
+        
         
         self.mask_gen.H, self.mask_gen.W = image.shape[1], image.shape[2]
         mask_MAE = self.mask_gen.generate_mask()
@@ -453,7 +459,7 @@ class Tiny_BigEarthNet_MAE(Dataset):
         mask_MAE = MAE_mask[attention_mask==0.0]    # same for mask
         
         # Shuffle tokens
-        image, mask_MAE = self.shuffle_arrays([image, mask_MAE])
+        #image, mask_MAE = self.shuffle_arrays([image, mask_MAE])
         
         # Split into input and target tokens
         input_tokens = image[mask_MAE==0.0].clone()
@@ -472,6 +478,7 @@ class Tiny_BigEarthNet_MAE(Dataset):
         """Fixed version that properly opens HDF5 file."""
         # Ensure HDF5 file is open
         f = self._ensure_h5_open()
+        idx=0
         
         
         
@@ -481,7 +488,7 @@ class Tiny_BigEarthNet_MAE(Dataset):
         attention_mask = torch.zeros(image.shape)
         
         mask_MAE = None
-        new_resolution = 1.0
+        new_resolution = 10.0 #in m/px
         
         self.mask_gen.H, self.mask_gen.W = image.shape[1], image.shape[2]
         mask_MAE = self.mask_gen.generate_mask()
