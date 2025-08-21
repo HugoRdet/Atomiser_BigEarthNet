@@ -24,6 +24,7 @@ class CustomMAEReconstructionCallback(pl.Callback):
         super().__init__()
         self.config=config
         
+        
         self.log_every_n_epochs = config["debug"]["viz_every_n_epochs"]
         self.sample_indices = config["debug"]["idxs_to_viz"]
         self.num_samples = len(self.sample_indices)
@@ -266,7 +267,7 @@ class CustomMAEReconstructionCallback(pl.Callback):
 
 
 
-class CustomMAEReconstructionCallback_FLAIR(pl.Callback):
+class FLAIR_CustomMAEReconstructionCallback(pl.Callback):
 
     def __init__(
         self,
@@ -282,6 +283,7 @@ class CustomMAEReconstructionCallback_FLAIR(pl.Callback):
         self.log_every_n_epochs = config["debug"]["viz_every_n_epochs"]
         self.sample_indices = config["debug"]["idxs_to_viz"]
         self.num_samples = len(self.sample_indices)
+        
         
         # Sentinel-2 band definitions (12 bands)
         self.sentinel2_bands = {

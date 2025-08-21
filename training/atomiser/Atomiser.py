@@ -254,7 +254,7 @@ class Atomiser(pl.LightningModule):
             
             # Cross-attention: latents attend to tokens
             latents = cross_attn(latents, context=processed_tokens, mask=~processed_mask) + latents
-            print(latents.mean(dim=(1,2)))
+            
             # Cross feedforward
             latents = cross_ff(latents) + latents
             
@@ -285,9 +285,11 @@ class Atomiser(pl.LightningModule):
         
         # Cross-attention: query tokens attend to latents
         attended = self.recon_cross(processed_query, context=latents, mask=None)
-       
+        skip_co=self.recon_head(attended)
         # Project to output
-        predictions = attended+self.recon_head(attended)
+        
+        predictions = attended+skip_co
+        
         predictions = self.recon_tologits(predictions)
         
         return predictions, processed_mask

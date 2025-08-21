@@ -81,8 +81,8 @@ model = Model_MAE(
 )
 
 data_module = Tiny_BigEarthNetDataModule(
-    f"./data/Tiny_BigEarthNet/{args.dataset_name}",
-    #f"./data/custom_flair/{args.dataset_name}",
+    #f"./data/Tiny_BigEarthNet/{args.dataset_name}",
+    f"./data/custom_flair/{args.dataset_name}",
     batch_size=config_model["dataset"]["batchsize"],
     num_workers=4,
     trans_modalities=modalities_trans,
@@ -91,10 +91,10 @@ data_module = Tiny_BigEarthNetDataModule(
     dataset_config=read_yaml(bands_yaml),
     config_model=config_model,
     look_up=lookup_table,
-    dataset_class=Tiny_BigEarthNet_MAE#FLAIR_MAE#
+    dataset_class=FLAIR_MAE#Tiny_BigEarthNet_MAE
 )
 
-reconstruction_callback = CustomMAEReconstructionCallback(#_FLAIR(
+reconstruction_callback = FLAIR_CustomMAEReconstructionCallback(
     config=config_model
     )
 

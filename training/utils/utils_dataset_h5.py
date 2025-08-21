@@ -459,7 +459,7 @@ class Tiny_BigEarthNet_MAE(Dataset):
         mask_MAE = MAE_mask[attention_mask==0.0]    # same for mask
         
         # Shuffle tokens
-        #image, mask_MAE = self.shuffle_arrays([image, mask_MAE])
+        image, mask_MAE = self.shuffle_arrays([image, mask_MAE])
         
         # Split into input and target tokens
         input_tokens = image[mask_MAE==0.0].clone()

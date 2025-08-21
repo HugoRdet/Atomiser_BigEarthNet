@@ -202,7 +202,7 @@ class transformations_config(nn.Module):
 
         # -- 2) compute positional scaling per band: [B, C]
         
-        pos_scalings = (size * resolution) / 400
+        pos_scalings = (size * resolution) / 102.4
         
   
         max_freq  = self.config["Atomiser"]["pos_max_freq"]
